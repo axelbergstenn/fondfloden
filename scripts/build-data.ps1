@@ -22,6 +22,7 @@ param(
   [string]$CacheDir = ".cache",
   [int]$History = 4,              # antal kvartal (jämförelser) som byggs i detalj
   [int]$HistoryQuarters = 0,      # 0 = alla kvartal FI har publicerat
+  [int]$OffersFrom = 2020,        # första året för uppköpserbjudanden
   [switch]$Force
 )
 
@@ -377,6 +378,151 @@ function Build-History($releases, $file) {
 }
 
 # ---------------------------------------------------------------------------
+# Uppköp: erbjudandehandlingar från FI:s prospektregister
+
+function Get-OfferList([int]$fromYear) {
+  $list = @()
+  for ($y = $fromYear; $y -le (Get-Date).Year; $y++) {
+    $html = (Invoke-WebRequest -Uri "$FiBase/sv/vara-register/prospektregistret/?dokumenttyp=erbjudandehandling&year=$y" -UseBasicParsing).Content
+    foreach ($m in [regex]::Matches($html, '(?s)<td class="date">(\d{4}-\d{2}-\d{2})</td>\s*<td>(.*?)</td>\s*<td>(.*?)</td>\s*<td><a href="details\?id=([\d-]+)"')) {
+      $list += [pscustomobject]@{
+        Id = $m.Groups[4].Value; Date = $m.Groups[1].Value
+        Bidder = [System.Net.WebUtility]::HtmlDecode($m.Groups[2].Value).Trim()
+        Type = [System.Net.WebUtility]::HtmlDecode($m.Groups[3].Value).Trim()
+      }
+    }
+  }
+  return $list
+}
+
+# Läser de första sidorna i erbjudandehandlingen med pdftotext (poppler)
+function Get-OfferText($id) {
+  New-Item -ItemType Directory -Force $CacheDir | Out-Null
+  $pdf = Join-Path $CacheDir "offer-$id.pdf"
+  $txt = Join-Path $CacheDir "offer-$id.txt"
+  if (-not (Test-Path $txt)) {
+    Write-Host "  Läser erbjudandehandling $id"
+    Invoke-WebRequest -Uri "$FiBase/sv/vara-register/prospektregistret/GetFile?id=$id" -OutFile $pdf -UseBasicParsing
+    & pdftotext -f 1 -l 15 -enc UTF-8 $pdf $txt 2>$null
+    Remove-Item $pdf -ErrorAction SilentlyContinue
+    if (-not (Test-Path $txt)) { return $null }
+  }
+  return [System.IO.File]::ReadAllText($txt, [System.Text.Encoding]::UTF8)
+}
+
+function Parse-Offer($text) {
+  $r = @{ target = $null; price = $null; premium = $null; currency = $null }
+  if (-not $text) { return $r }
+  $t = $text -replace '­', '' -replace '[‐-–]', '-'
+  $head = ($t -split "`n" | Select-Object -First 60) -join "`n"
+  $patterns = @(
+    '(?im)erbjudande\s+till\s+aktieägarna\s+i\s+(.+?)\s*$',
+    '(?im)^\s*(?:offentligt\s+)?(?:kontant\s+)?(?:uppköps)?erbjudande\s+avseende\s+(?:samtliga\s+)?(?:aktier(?:na)?\s+i\s+)?(.+?)\s*$',
+    '(?i)(?:uppköpserbjudande|kontanterbjudande|budpliktserbjudande|erbjudande)\s+avseende\s+(?:förvärv\s+av\s+)?(?:samtliga\s+(?:utestående\s+)?)?(?:aktier(?:na)?\s+i\s+)?(.+?)\s*[\(,]',
+    '(?im)offer\s+to\s+the\s+shareholders\s+(?:of|in)\s+(.+?)\s*$'
+  )
+  foreach ($p in $patterns) {
+    $m = [regex]::Match($head, $p)
+    if ($m.Success -and $m.Groups[1].Value.Length -ge 2 -and $m.Groups[1].Value.Length -le 80) { $r.target = $m.Groups[1].Value.Trim(); break }
+  }
+  # Första premien mot stängningskursen, även när den står i en punktlista efter "en premie om:"
+  $pm = [regex]::Match($t, '(?is)premie\s+(?:om|på).{0,250}?(\d{1,3}(?:[,.]\d+)?)\s*(?:procent|%)\s+(?:jämfört\s+med|i\s+förhållande\s+till|i\s+relation\s+till)\s+(?:den\s+)?(?:stängnings|slut)kurs')
+  if ($pm.Success) { $r.premium = Num $pm.Groups[1].Value }
+  # Budpriset: tydliga formuleringar först, aldrig utdelningar eller stängningskurser
+  $num = '(\d{1,4}(?:[  ]\d{3})*(?:,\d{1,2})?)\s*(kronor|SEK|EUR|USD|NOK|DKK)'
+  foreach ($p in @(
+      "(?i)(?:erbjuder|erbjudandepriset\s+(?:om|är)|priset\s+i\s+erbjudandet\s+(?:är|om))\s+$num",
+      "(?i)$num\s+(?:kontant\s+|i\s+kontanter\s+)per\s+(?:stam)?aktie",
+      "(?i)(?:offers?|offer\s+price\s+of)\s+$num\s+in\s+cash")) {
+    $pr = [regex]::Match($t, $p)
+    if ($pr.Success) {
+      $r.price = Num ($pr.Groups[1].Value -replace '[  ]', '')
+      $r.currency = $(if ($pr.Groups[2].Value -eq 'kronor') { 'SEK' } else { $pr.Groups[2].Value.ToUpper() })
+      break
+    }
+  }
+  return $r
+}
+
+function Norm-Company($s) {
+  $s = ([string]$s).ToLowerInvariant()
+  $s = $s -replace '\(publ\)|\bpubl\b', ' ' -replace "[\.,'’`"\(\)&/\-]", ' '
+  $s = $s -replace '\b(ab|aktiebolag|asa|oyj|plc|inc|ltd|sa|se|nv|corp|co)\b', ' '
+  $s = $s -replace '\b(ser|class|series|shs|aktie|aktier|sdb|b|a|c|d)\b', ' '
+  return ($s -replace '\s+', ' ').Trim()
+}
+
+# Kvartalet före ett datum, t.ex. 2025-05-12 -> 2025Q1
+function Quarter-Before($date) {
+  $y = [int]$date.Substring(0, 4); $mo = [int]$date.Substring(5, 2)
+  $q = [math]::Ceiling($mo / 3) - 1
+  if ($q -eq 0) { $y--; $q = 4 }
+  return "$($y)Q$q"
+}
+
+$NormCache = @{}
+function Build-Offers($releases, $file, [int]$fromYear) {
+  $hasPdf = $null -ne (Get-Command pdftotext -ErrorAction SilentlyContinue)
+  $existing = @{}
+  if (Test-Path $file) {
+    $old = Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($o in $old.offers) { $existing[$o.id] = $o }
+  }
+  $offers = Get-OfferList $fromYear
+  Write-Host "Uppköp: $($offers.Count) erbjudandehandlingar sedan $fromYear"
+  $byId = @{}; foreach ($r in $releases) { $byId[$r.Id] = $r }
+  $out = @(); $changed = $false
+  foreach ($o in ($offers | Sort-Object Date -Descending)) {
+    $prev = $existing[$o.Id]
+    if ($prev -and ($prev.target -or -not $hasPdf)) { $out += ($prev | ConvertTo-Json -Depth 5 -Compress); continue }
+    if (-not $hasPdf) { Write-Host "  pdftotext saknas, hoppar över $($o.Id)"; continue }
+    $parsed = Parse-Offer (Get-OfferText $o.Id)
+    $changed = $true
+
+    # Hitta målbolaget bland aktierna i kvartalet före budet
+    $qid = Quarter-Before $o.Date
+    $rel = $byId[$qid]; if (-not $rel) { $rel = $releases[0]; $qid = $rel.Id }
+    $Q = Read-Quarter $rel
+    $isins = @()
+    if ($parsed.target) {
+      $tn = Norm-Company $parsed.target
+      if (-not $NormCache.ContainsKey($Q.id)) {
+        $tot = Get-Totals $Q
+        $NormCache[$Q.id] = @(foreach ($isin in $Q.names.Keys) {
+          if ($isin -notmatch '^(SE|FI|DK|NO)') { continue }
+          foreach ($nm in $Q.names[$isin].Keys) { [pscustomobject]@{ Isin = $isin; Norm = (Norm-Company $nm); Value = [double]$tot[$isin] } }
+        })
+      }
+      $cands = foreach ($c in $NormCache[$Q.id]) {
+        $sn = $c.Norm
+        if ($sn.Length -lt 4 -or $tn.Length -lt 4) { continue }
+        if ($sn -eq $tn -or $tn.StartsWith($sn + " ") -or $sn.StartsWith($tn + " ") -or ($sn.Length -ge 12 -and $tn.StartsWith($sn)) -or ($tn.Length -ge 12 -and $sn.StartsWith($tn))) { $c }
+      }
+      $isins = @($cands | Sort-Object Value -Descending | Select-Object -ExpandProperty Isin -Unique)
+    }
+    $holders = @()
+    if ($isins.Count) {
+      foreach ($id in $Q.funds.Keys) {
+        $f = $Q.funds[$id]; $v = 0.0
+        foreach ($isin in $isins) { if ($f.h[$isin]) { $v += $f.h[$isin] * [double]$Q.price[$isin] } }
+        if ($v -gt 0) { $holders += [pscustomobject]@{ id = $id; name = $f.name; v = [math]::Round($v); w = $(if ($f.aum) { [math]::Round($v / $f.aum, 5) } else { $null }) } }
+      }
+      $holders = @($holders | Sort-Object v -Descending)
+    }
+    $rec = [ordered]@{
+      id = $o.Id; date = $o.Date; bidder = $o.Bidder; type = $o.Type; target = $parsed.target
+      isins = $isins; quarter = $qid; price = $parsed.price; currency = $parsed.currency; premium = $parsed.premium
+      holders = @($holders | ForEach-Object { , @($_.id, $_.name, $_.v, $_.w) })
+    }
+    $out += ($rec | ConvertTo-Json -Depth 5 -Compress)
+    Write-Host ("  {0} {1}: {2} -> {3} ({4} fonder){5}" -f $o.Date, $o.Bidder, $(if ($parsed.target) { $parsed.target } else { "MÅLBOLAG OKÄNT" }), ($isins -join ","), $holders.Count, $(if ($parsed.premium) { ", premie $($parsed.premium) %" } else { "" }))
+  }
+  if (-not $changed -and (Test-Path $file)) { Write-Host "Uppköpen är aktuella"; return $false }
+  Write-Utf8 $file ('{"built":' + (J (Get-Date -Format "yyyy-MM-dd")) + ',"offers":[' + ($out -join ",") + "]}")
+  return $true
+}
+
+# ---------------------------------------------------------------------------
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
@@ -409,6 +555,8 @@ if ($Force -or -not $histCurrent) {
 } else {
   Write-Host "Historiken är aktuell"
 }
+
+if (Build-Offers $releases (Join-Path $OutDir "offers.json") $OffersFrom) { $built++ }
 
 # index.json listar alla kvartal som finns byggda, nyast först
 $indexFile = Join-Path $OutDir "index.json"

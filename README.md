@@ -11,6 +11,8 @@ Vilka aktier köper och säljer fonderna? Fondflöden jämför svenska fonders i
 - **Fonder** – varje fonds affärer, avgift och aktiva risk.
 - **Förvaltare** – vad Sveriges kända aktiva fonder har köpt och sålt, och var de är överens.
 - **Avgifter** – aktiv risk mot avgift för alla aktiefonder, med indexnära fonder som tar ut höga avgifter.
+- **Uppköp** – offentliga uppköpserbjudanden från FI:s prospektregister med pris, premie och vilka fonder som ägde bolaget.
+- **Min portfölj, Jämför, Sök och Bevakning** – genomlysning av egna fonder, överlapp mellan fonder, snabbsök och bevakningslista.
 
 ## Struktur
 
@@ -24,6 +26,7 @@ site/                       Den statiska sajten (publiceras med GitHub Pages)
   data/2026Q2.json          Svenska aktier, jämfört med kvartalet innan, + nyckeltal för alla fonder
   data/2026Q2-world.json    Utländska aktier
   data/history.json         Ägande och nettoköp per aktie för alla kvartal sedan 2018
+  data/offers.json          Uppköpserbjudanden (målbolag, pris, premie, ägande fonder)
 scripts/
   build-data.ps1            Hämtar FI:s zip-filer och bygger site/data
   serve.ps1                 Lokal webbserver för utveckling
@@ -72,3 +75,7 @@ FI:s zip-filer cachas mellan körningar.
 - Aktiesplittar upptäcks när minst tre fonder (och minst 15 %) har exakt samma förändringskvot långt från 1.
 - Utländska aktier tas med när svenska fonder sammanlagt äger minst 20 mkr. Obligationer och fondandelar filtreras bort.
 - Indexnära med hög avgift: aktiefond med aktiv risk under 3 % och förvaltningsavgift på minst 0,7 %.
+
+## Uppköp
+
+Erbjudandehandlingar hämtas från [FI:s prospektregister](https://www.fi.se/sv/vara-register/prospektregistret/). Målbolag, pris och premie läses ur de första sidorna med `pdftotext` (poppler-utils), som installeras i GitHub Actions och finns i Git för Windows. Varje dokument läses en gång; resultatet sparas i `site/data/offers.json`.

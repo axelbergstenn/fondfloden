@@ -14,7 +14,7 @@
   var CLOSET_FEE = 0.7;
 
   // Kända aktiva fonder (FI:s institutnummer) som visas under Förvaltare
-  var FEATURED = ["51272", "51718", "60730", "51545", "51670", "60908", "51540", "51791", "51381",
+  var FEATURED = ["51313", "60319", "51272", "51718", "60730", "51545", "51670", "60908", "51540", "51791", "51381",
     "60503", "60012", "60214", "51760", "51669", "60194", "51318", "51544"];
 
   var CONTACT = ["axelsfondfloden", "gmail.com"].join("@");
@@ -518,6 +518,15 @@
         fig("Nya fonder", int(s.nNew)) + fig("Avvecklat", int(s.nExit)) + "</dl>";
       if (s.isNew) html += '<p class="notice">Ingen fond ägde aktien förra kvartalet. Det beror oftast på en notering, avknoppning eller ett nytt aktieslag, så innehaven räknas inte som köp i översikten.</p>';
       if (s.isGone) html += '<p class="notice">Ingen fond äger aktien längre. Det beror oftast på uppköp, avnotering eller byte av aktieslag.</p>';
+    }
+
+    // Uppköpserbjudanden på bolaget
+    if (needOffers()) {
+      offersFor(isin).forEach(function (o) {
+        html += '<div class="notice offer-notice"><b>Uppköpserbjudande ' + o.date + "</b> från " + esc(o.bidder) +
+          (o.price != null ? ", " + offerPriceText(o) + " per aktie" : "") + (o.premium != null ? " (premie " + nf1.format(o.premium) + " %)" : "") +
+          '. <a href="#/uppkop/' + encodeURIComponent(o.id) + '">Se vilka fonder som ägde bolaget</a></div>';
+      });
     }
 
     html += '<section class="block section-gap"><div class="block-head"><h2>Historik</h2>';
@@ -1240,7 +1249,7 @@
       var funds = fundList().map(function (f) { return { f: f, sc: Math.min(scoreMatch(f.name, q), 99) }; }).filter(function (x) { return x.sc >= 0; });
       funds.sort(function (a, b) { return a.sc - b.sc || b.f.aum - a.f.aum; });
       funds.slice(0, 6).forEach(function (x) { items.push({ kind: "Fonder", label: x.f.name, sub: x.f.co + " · " + bigSek(x.f.aum), href: fundHref(x.f) }); });
-      var pages = [["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
+      var pages = [["Uppköp", "#/uppkop"], ["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
       pages.forEach(function (pg) { if (scoreMatch(pg[0], q) >= 0) items.push({ kind: "Sidor", label: pg[0], sub: "", href: pg[1] }); });
     }
     search.items = items;
@@ -1269,6 +1278,135 @@
     if (!it) return;
     closeSearch();
     location.hash = it.href;
+  }
+
+  // ---------- Uppköp ----------
+
+  function needOffers() {
+    return need("offers", function () {
+      return getJSON("data/offers.json").then(function (d) {
+        d.offers.forEach(function (o) {
+          o.name = cleanTarget(o.target);
+          o.holders = (o.holders || []).map(function (h) { return { id: h[0], name: h[1], v: h[2], w: h[3] }; });
+          o.held = o.holders.reduce(function (a, h) { return a + h.v; }, 0);
+        });
+        state.offers = d;
+      });
+    });
+  }
+  function cleanTarget(t) { return t ? prettyName(String(t).replace(/\s*\(publ\)\s*/ig, " ").replace(/\s+/g, " ").trim()) : null; }
+  function offerUrl(o) { return "https://www.fi.se/sv/vara-register/prospektregistret/details?id=" + encodeURIComponent(o.id); }
+  function offersFor(isin) {
+    return state.offers ? state.offers.offers.filter(function (o) { return o.isins && o.isins.indexOf(isin) >= 0; }) : [];
+  }
+
+  // Status utifrån historiken: finns aktien kvar i fonderna eller försvann den efter budet?
+  function offerStatus(o) {
+    var h = state.history;
+    if (!h || !o.isins || !o.isins.length) return null;
+    var last = -1;
+    o.isins.forEach(function (isin) {
+      var e = h.stocks[isin];
+      if (e) e[3].forEach(function (r) { if (r[1] > 0 && r[0] > last) last = r[0]; });
+    });
+    if (last < 0) return null;
+    var latest = h.quarters.length - 1, offerQ = h.qIndex[o.quarter];
+    if (last >= latest) return { gone: false, label: "Ägs fortfarande av fonder" };
+    if (offerQ != null && last < offerQ) return null;
+    return { gone: true, label: "Borta ur fonderna efter " + quarterLabel(h.quarters[last]) };
+  }
+
+  function offerPriceText(o) {
+    if (o.price == null) return o.type === "Aktiebud" ? "Aktier" : "–";
+    return nf2.format(o.price).replace(/,00$/, "") + " " + (o.currency === "SEK" ? "kr" : o.currency);
+  }
+
+  function viewOffers(id) {
+    document.title = "Uppköp – Fondflöden";
+    var head = '<div class="page-head"><h1>Uppköp</h1><p class="meta lead">Offentliga uppköpserbjudanden på Stockholmsbörsen som godkänts av Finansinspektionen, ' +
+      "och vilka fonder som ägde bolagen när budet kom.</p></div>";
+    if (!needOffers()) return head + (failed("offers") ? errorBlock() : loadingBlock("Laddar uppköp…"));
+    needHistory();
+    if (id) return viewOffer(id);
+    var offers = state.offers.offers;
+    var withTarget = offers.filter(function (o) { return o.name; });
+    var prem = offers.map(function (o) { return o.premium; }).filter(function (p) { return p != null; }).sort(function (a, b) { return a - b; });
+    var medPrem = prem.length ? prem[Math.floor(prem.length / 2)] : null;
+    var years = offers.map(function (o) { return o.date.slice(0, 4); }).sort();
+
+    // Fonder som oftast ägt bolag som fått bud
+    var byFund = {};
+    offers.forEach(function (o) {
+      o.holders.forEach(function (h) {
+        var f = byFund[h.id] = byFund[h.id] || { id: h.id, name: h.name, n: 0, v: 0, targets: [] };
+        f.n++; f.v += h.v; f.targets.push(o.name);
+      });
+    });
+    var fiNow = quarterData().fi;
+    var winners = Object.keys(byFund).map(function (k) { return byFund[k]; }).filter(function (f) {
+      var fi = fiNow[f.id];
+      return !INDEX_RE.test(f.name) && !(fi && fi.ar != null && fi.ar < 1.5); // indexnära fonder räknas bort
+    })
+      .sort(function (a, b) { return b.n - a.n || b.v - a.v; }).slice(0, 12);
+    var top = winners[0];
+
+    var targetCell = function (o) {
+      var nm = o.name || "Okänt bolag";
+      var href = o.isins && o.isins.length ? "#/aktie/" + o.isins[0] : null;
+      var sub = esc(o.bidder) + (o.premium != null ? " · premie " + nf1.format(o.premium) + " %" : "");
+      return (href ? nameCell(href, nm, sub) : '<span class="nm-plain">' + esc(nm) + '</span><span class="sub show-sm">' + sub + "</span>");
+    };
+    var cols = [
+      { key: "date", label: "Datum", align: "l", cls: "muted", cell: function (o) { return o.date; }, value: function (o) { return o.date; } },
+      { key: "name", label: "Bolag", align: "l", cls: "name", cell: targetCell, value: function (o) { return o.name || ""; } },
+      { key: "bidder", label: "Budgivare", align: "l", cls: "muted", hideSm: true, cell: function (o) { return esc(o.bidder); }, value: function (o) { return o.bidder; } },
+      { key: "price", label: "Pris", hideSm: true, cell: offerPriceText, value: function (o) { return o.price; } },
+      { key: "premium", label: "Premie", cell: function (o) { return o.premium == null ? "–" : '<span class="pos">' + nf1.format(o.premium) + " %</span>"; }, value: function (o) { return o.premium; } },
+      { key: "held", label: "Fonder ägde", hideSm: true, cell: function (o) { return o.holders.length ? int(o.holders.length) + " · " + bigSek(o.held) : "–"; }, value: function (o) { return o.held; } },
+      { key: "status", label: "Status", align: "l", hideSm: true, cell: function (o) { var s = offerStatus(o); return s ? '<span class="label' + (s.gone ? " out" : "") + '">' + s.label + "</span>" : "–"; } },
+      { key: "more", label: "", cell: function (o) { return '<a href="#/uppkop/' + encodeURIComponent(o.id) + '">Detaljer</a>'; } }
+    ];
+    var winCols = [
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (f) { return nameCell(fundHref(f), f.name, f.targets.slice(0, 4).join(", ")); } },
+      { key: "n", label: "Uppköpta innehav", cell: function (f) { return '<span class="streak pos">' + f.n + "</span>"; } },
+      { key: "v", label: "Värde vid budet", cell: function (f) { return bigSek(f.v); } },
+      { key: "t", label: "Bolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return esc(f.targets.slice(0, 4).join(", ") + (f.targets.length > 4 ? " …" : "")); } }
+    ];
+
+    return head +
+      '<div class="highlights">' +
+      highlight("Uppköpserbjudanden", int(offers.length) + " bud", null, years.length ? "sedan " + years[0] : "", "Godkända erbjudandehandlingar hos FI") +
+      highlight("Mittenvärde för budpremien", medPrem != null ? nf1.format(medPrem) + " %" : "–", null, "", "Mot stängningskursen dagen före budet, " + prem.length + " bud") +
+      highlight("Flest uppköpta innehav", top ? top.name : null, top ? fundHref(top) : null, top ? top.n + " bolag som fått bud" : "", top ? "ägda kvartalet före budet" : "") +
+      "</div>" +
+      '<section class="block section-gap"><div class="block-head"><h2>Alla bud</h2><span class="note">' + int(withTarget.length) + " av " + int(offers.length) + " med identifierat målbolag</span></div>" +
+      table("offers", cols, offers, { sort: { col: "date", dir: -1 } }) + "</section>" +
+      '<section class="block section-gap"><div class="block-head"><h2>Fonderna som oftast ägt uppköpta bolag</h2></div>' +
+      '<p class="desc">Antal bolag som fonden ägde vid kvartalsslutet före budet. Indexfonder och fonder med aktiv risk under 1,5 % är borträknade.</p>' +
+      table("offer-winners", winCols, winners, { static: true, empty: "Inga fonder." }) + "</section>" +
+      '<p class="desc section-gap">Källa: Finansinspektionens prospektregister. Målbolag, pris och premie läses automatiskt ur erbjudandehandlingarna och kan i enstaka fall bli fel. ' +
+      "Bud på First North och andra marknader utan krav på godkänd erbjudandehandling saknas.</p>";
+  }
+
+  function viewOffer(id) {
+    var o = state.offers.offers.filter(function (x) { return x.id === id; })[0];
+    if (!o) return notFound("Budet finns inte.");
+    document.title = (o.name || "Uppköp") + " – Fondflöden";
+    var st = offerStatus(o);
+    var cols = [
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (h) { return nameCell(fundHref(h), h.name, bigSek(h.v) + (h.w != null ? " · " + nf1.format(h.w * 100) + " % av fonden" : "")); } },
+      { key: "v", label: "Innehav", cell: function (h) { return bigSek(h.v); }, value: function (h) { return h.v; } },
+      { key: "w", label: "Andel av fonden", cell: function (h) { return h.w != null ? nf2.format(h.w * 100) + " %" : "–"; }, value: function (h) { return h.w; } }
+    ];
+    return '<div class="page-head"><div class="crumbs"><a href="#/uppkop">Uppköp</a> / ' + esc(o.name || o.bidder) + "</div>" +
+      "<h1>" + esc(o.name || "Okänt målbolag") + '</h1><p class="meta">Bud från ' + esc(o.bidder) + " · " + esc(o.type) + " · " + o.date + "</p></div>" +
+      '<dl class="figures">' + fig("Pris per aktie", offerPriceText(o)) + fig("Premie", o.premium != null ? nf1.format(o.premium) + " %" : "–", "mot stängningskursen före budet") +
+      fig("Fonder som ägde", int(o.holders.length), quarterLabel(o.quarter)) + fig("Fondernas innehav", bigSek(o.held)) +
+      fig("Status", st ? st.label : "–") + "</dl>" +
+      '<p class="actions-row">' + (o.isins && o.isins.length ? '<a class="btn" href="#/aktie/' + o.isins[0] + '">Aktiens sida och historik</a> ' : "") +
+      '<a class="btn" href="' + offerUrl(o) + '" target="_blank" rel="noopener">Erbjudandehandlingen hos FI ↗</a></p>' +
+      '<section class="block section-gap"><div class="block-head"><h2>Fonder som ägde bolaget</h2><span class="note">Vid kvartalsslutet före budet, ' + quarterLabel(o.quarter) + "</span></div>" +
+      table("offer-holders-" + o.id, cols, o.holders, { sort: { col: "v", dir: -1 }, empty: "Inga svenska fonder ägde bolaget." }) + "</section>";
   }
 
   // ---------- Om och kontakt ----------
@@ -1334,6 +1472,7 @@
       case "avgifter": html = viewFees(); break;
       case "portfolj": html = viewPortfolio(r.arg); break;
       case "jamfor": html = viewCompare(r.arg, r.arg2); break;
+      case "uppkop": html = viewOffers(r.arg); break;
       case "om": html = viewAbout(); break;
       case "kontakt": html = viewContact(); break;
       default: html = viewOverview();

@@ -424,3 +424,7 @@ table.cmp-table thead th { font-size: 13px; color: var(--fg); }
 
 .byline { font-size: 13px; color: var(--fg-muted); margin-top: 8px; }
 .byline b { color: var(--fg); font-weight: 600; }
+
+.offer-notice { border-color: var(--link); margin-top: 12px; }
+.actions-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 4px; }
+.nm-plain { font-weight: 600; }

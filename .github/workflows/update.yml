@@ -1,0 +1,62 @@
+name: Uppdatera data och publicera
+
+on:
+  schedule:
+    # Varje måndag 05:00 UTC
+    - cron: "0 5 * * 1"
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Bygg om alla kvartal"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hämta fondinnehav från FI
+        shell: pwsh
+        run: |
+          $force = "${{ inputs.force }}" -eq "true"
+          ./scripts/build-data.ps1 -History 4 -Force:$force
+
+      - name: Spara ny data i repot
+        run: |
+          if [ -n "$(git status --porcelain site/data)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add site/data
+            git commit -m "Uppdatera fondinnehav från FI"
+            git push
+          else
+            echo "Ingen ny data."
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

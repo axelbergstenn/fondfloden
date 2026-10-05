@@ -418,12 +418,13 @@ function Parse-Offer($text) {
   $patterns = @(
     '(?im)erbjudande\s+till\s+aktieägarna\s+i\s+(.+?)\s*$',
     '(?im)^\s*(?:offentligt\s+)?(?:kontant\s+)?(?:uppköps)?erbjudande\s+avseende\s+(?:samtliga\s+)?(?:aktier(?:na)?\s+i\s+)?(.+?)\s*$',
-    '(?i)(?:uppköpserbjudande|kontanterbjudande|budpliktserbjudande|erbjudande)\s+avseende\s+(?:förvärv\s+av\s+)?(?:samtliga\s+(?:utestående\s+)?)?(?:aktier(?:na)?\s+i\s+)?(.+?)\s*[\(,]',
+    '(?i)(?:uppköpserbjudande|kontanterbjudande|budpliktserbjudande|erbjudande)\s+avseende\s+(?:förvärv\s+av\s+)?(?:samtliga\s+(?:utestående\s+)?)?(?:(?:stam)?aktier(?:na)?\s+i\s+)?(.+?)\s*[\(,]',
     '(?im)offer\s+to\s+the\s+shareholders\s+(?:of|in)\s+(.+?)\s*$'
   )
   foreach ($p in $patterns) {
     $m = [regex]::Match($head, $p)
-    if ($m.Success -and $m.Groups[1].Value.Length -ge 2 -and $m.Groups[1].Value.Length -le 80) { $r.target = $m.Groups[1].Value.Trim(); break }
+    $cand = $m.Groups[1].Value.Trim()
+    if ($m.Success -and $cand.Length -ge 2 -and $cand.Length -le 80 -and $cand -notmatch '^(?:stam)?aktier(?:na)?\b') { $r.target = $cand; break }
   }
   # Första premien mot stängningskursen, även när den står i en punktlista efter "en premie om:"
   $pm = [regex]::Match($t, '(?is)premie\s+(?:om|på).{0,250}?(\d{1,3}(?:[,.]\d+)?)\s*(?:procent|%)\s+(?:jämfört\s+med|i\s+förhållande\s+till|i\s+relation\s+till)\s+(?:den\s+)?(?:stängnings|slut)kurs')
@@ -461,6 +462,7 @@ function Quarter-Before($date) {
 }
 
 $NormCache = @{}
+$OfferParser = 2   # höj när tolkningen av erbjudandehandlingar ändras, så läses alla om en gång
 function Build-Offers($releases, $file, [int]$fromYear) {
   $hasPdf = $null -ne (Get-Command pdftotext -ErrorAction SilentlyContinue)
   $existing = @{}
@@ -474,7 +476,8 @@ function Build-Offers($releases, $file, [int]$fromYear) {
   $out = @(); $changed = $false
   foreach ($o in ($offers | Sort-Object Date -Descending)) {
     $prev = $existing[$o.Id]
-    if ($prev -and ($prev.target -or -not $hasPdf)) { $out += ($prev | ConvertTo-Json -Depth 5 -Compress); continue }
+    # Ett dokument läses bara om en gång om tolkningen ändrats (parsed = versionen av tolkningsreglerna)
+    if ($prev -and ([int]$prev.parsed -ge $OfferParser -or -not $hasPdf)) { $out += ($prev | ConvertTo-Json -Depth 5 -Compress); continue }
     if (-not $hasPdf) { Write-Host "  pdftotext saknas, hoppar över $($o.Id)"; continue }
     $parsed = Parse-Offer (Get-OfferText $o.Id)
     $changed = $true
@@ -510,7 +513,7 @@ function Build-Offers($releases, $file, [int]$fromYear) {
       $holders = @($holders | Sort-Object v -Descending)
     }
     $rec = [ordered]@{
-      id = $o.Id; date = $o.Date; bidder = $o.Bidder; type = $o.Type; target = $parsed.target
+      id = $o.Id; parsed = $OfferParser; date = $o.Date; bidder = $o.Bidder; type = $o.Type; target = $parsed.target
       isins = $isins; quarter = $qid; price = $parsed.price; currency = $parsed.currency; premium = $parsed.premium
       holders = @($holders | ForEach-Object { , @($_.id, $_.name, $_.v, $_.w) })
     }

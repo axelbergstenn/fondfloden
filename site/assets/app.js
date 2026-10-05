@@ -1969,16 +1969,17 @@
   function termLink(slug, text) { return '<a class="term" href="#/ordlista/' + slug + '" title="Vad betyder det?">' + text + "</a>"; }
 
   function viewGlossary(slug) {
-    document.title = "Ordlista – Fondinsyn";
+    document.title = "Vanliga frågor och ordlista – Fondinsyn";
     var terms = GLOSSARY.slice().sort(function (a, b) { return a[1].localeCompare(b[1], "sv"); });
-    var html = '<div class="page-head"><h1>Ordlista och vanliga frågor</h1><p class="meta lead">Förklaringar av begreppen på Fondinsyn.</p></div>' +
+    var html = '<div class="page-head"><h1>Vanliga frågor och ordlista</h1><p class="meta lead">Svar på vanliga frågor och förklaringar av begreppen på Fondinsyn.</p></div>' +
+      '<div class="faq">' + FAQ.map(function (q) {
+        return "<details><summary>" + esc(q[0]) + "</summary><p>" + esc(q[1]) + "</p></details>";
+      }).join("") + "</div>" +
+      '<h2 class="section-title">Ordlista</h2>' +
       '<div class="glossary-index">' + terms.map(function (t) { return '<a href="#/ordlista/' + t[0] + '">' + esc(t[1]) + "</a>"; }).join("") + "</div>" +
       '<dl class="glossary">' + terms.map(function (t) {
         return '<div class="g-item' + (t[0] === slug ? " g-active" : "") + '" id="term-' + t[0] + '"><dt>' + esc(t[1]) + "</dt><dd>" + esc(t[2]) + "</dd></div>";
-      }).join("") + "</dl>" +
-      '<h2 class="section-title">Vanliga frågor</h2><div class="faq">' + FAQ.map(function (q) {
-        return "<details><summary>" + esc(q[0]) + "</summary><p>" + esc(q[1]) + "</p></details>";
-      }).join("") + "</div>";
+      }).join("") + "</dl>";
     if (slug) setTimeout(function () { var el = $("term-" + slug); if (el) el.scrollIntoView({ block: "center" }); }, 0);
     return html;
   }

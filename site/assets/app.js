@@ -161,7 +161,8 @@
     }
     if (opts.limit) rows = rows.slice(0, opts.limit);
     var head = cols.map(function (c) {
-      var al = c.align === "l" ? ' class="l"' : "";
+      var thCls = [c.align === "l" ? "l" : "", c.hideSm ? "hide-sm" : ""].join(" ").trim();
+      var al = thCls ? ' class="' + thCls + '"' : "";
       if (!c.value || opts.static) return "<th" + al + ' scope="col">' + c.label + "</th>";
       var active = sort && sort.col === c.key;
       var aria = active ? ' aria-sort="' + (sort.dir > 0 ? "ascending" : "descending") + '"' : "";
@@ -170,7 +171,7 @@
     }).join("");
     var body = rows.map(function (r, n) {
       return "<tr>" + cols.map(function (c) {
-        var classes = [c.align === "l" ? "l" : "", c.cls || ""].join(" ").trim();
+        var classes = [c.align === "l" ? "l" : "", c.cls || "", c.hideSm ? "hide-sm" : ""].join(" ").trim();
         return "<td" + (classes ? ' class="' + classes + '"' : "") + ">" + c.cell(r, n) + "</td>";
       }).join("") + "</tr>";
     }).join("");
@@ -191,13 +192,23 @@
     return '<span class="label">Oförändrad</span>';
   }
 
+  // Namncell med en extra rad som bara visas på mobil, där kolumnerna den ersätter är dolda.
+  function nameCell(href, name, sub) {
+    return '<a href="' + href + '">' + esc(name) + "</a>" + (sub ? '<span class="sub show-sm">' + sub + "</span>" : "");
+  }
+
+  function stockCol(subFn) {
+    return { key: "name", label: "Aktie", align: "l", cls: "name", value: function (s) { return s.name; },
+      cell: function (s) { return nameCell(stockHref(s), s.name, subFn && subFn(s)); } };
+  }
+
   var col = {
-    rank: { key: "rank", label: "#", cls: "rank", cell: function (r, n) { return n + 1; } },
-    stock: { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (s) { return '<a href="' + stockHref(s) + '">' + esc(s.name) + "</a>"; }, value: function (s) { return s.name; } },
-    sector: { key: "sector", label: "Sektor", align: "l", cls: "muted", cell: function (s) { return esc(s.sector); }, value: function (s) { return s.sector; } },
+    rank: { key: "rank", label: "#", cls: "rank", hideSm: true, cell: function (r, n) { return n + 1; } },
+    stock: stockCol(),
+    sector: { key: "sector", label: "Sektor", align: "l", cls: "muted", hideSm: true, cell: function (s) { return esc(s.sector); }, value: function (s) { return s.sector; } },
     funds: { key: "f2", label: "Fonder", cell: function (s) { return int(s.f2); }, value: function (s) { return s.f2; } },
-    dFunds: { key: "dF", label: "Δ fonder", cell: function (s) { return '<span class="' + cls(s.dF) + '">' + (s.dF ? signed(String(s.dF), s.dF) : "0") + "</span>"; }, value: function (s) { return s.dF; } },
-    value: { key: "val2", label: "Innehav (mkr)", cell: function (s) { return mkr(s.val2); }, value: function (s) { return s.val2; } },
+    dFunds: { key: "dF", label: "Δ fonder", hideSm: true, cell: function (s) { return '<span class="' + cls(s.dF) + '">' + (s.dF ? signed(String(s.dF), s.dF) : "0") + "</span>"; }, value: function (s) { return s.dF; } },
+    value: { key: "val2", label: "Innehav (mkr)", hideSm: true, cell: function (s) { return mkr(s.val2); }, value: function (s) { return s.val2; } },
     flow: { key: "flow", label: "Nettoköp (mkr)", cell: function (s) {
       if (s.isNew) return '<span class="label new">Ny</span>';
       if (s.isGone) return '<span class="label out">Borta</span>';
@@ -225,21 +236,22 @@
     var gone = S.filter(function (s) { return s.isGone; }).sort(function (a, b) { return b.val1 - a.val1; }).slice(0, 10);
     var maxFlow = Math.max(buys.length ? buys[0].flow : 0, sells.length ? -sells[0].flow : 0);
 
-    var flowCols = [col.rank, col.stock, flowCol(maxFlow), col.chg, col.funds];
+    var fundsWide = { key: "f2", label: "Fonder", hideSm: true, cell: col.funds.cell };
+    var flowCols = [col.rank, col.stock, flowCol(maxFlow), col.chg, fundsWide];
     var newCols = [col.rank, col.stock,
       { key: "n", label: "Nya fonder", cell: function (s) { return '<span class="pos">+' + s.nNew + "</span>"; } },
       { key: "flow", label: "Nettoköp (mkr)", cell: function (s) { return '<span class="' + cls(s.flow) + '">' + mkr(s.flow, true) + "</span>"; } },
-      col.funds];
+      fundsWide];
     var exitCols = [col.rank, col.stock,
       { key: "n", label: "Avvecklat", cell: function (s) { return '<span class="neg">−' + s.nExit + "</span>"; } },
       { key: "flow", label: "Nettoköp (mkr)", cell: function (s) { return '<span class="' + cls(s.flow) + '">' + mkr(s.flow, true) + "</span>"; } },
-      col.funds];
+      fundsWide];
     var arrivedCols = [col.rank, col.stock,
       { key: "v", label: "Innehav (mkr)", cell: function (s) { return mkr(s.val2); } },
       { key: "f", label: "Fonder", cell: function (s) { return int(s.f2); } }];
     var goneCols = [col.rank, col.stock,
-      { key: "v", label: "Innehav förra kv. (mkr)", cell: function (s) { return mkr(s.val1); } },
-      { key: "f", label: "Fonder förra kv.", cell: function (s) { return int(s.f1b); } }];
+      { key: "v", label: "Förra kv. (mkr)", cell: function (s) { return mkr(s.val1); } },
+      { key: "f", label: "Fonder", cell: function (s) { return int(s.f1b); } }];
     var st = { static: true };
 
     return '<div class="grid-2">' +
@@ -269,14 +281,14 @@
     var sectorOpts = Object.keys(sectors).sort(function (a, b) { return a.localeCompare(b, "sv"); }).map(function (x) {
       return '<option value="' + esc(x) + '"' + (stockFilter.sector === x ? " selected" : "") + ">" + esc(x) + "</option>";
     }).join("");
-    var minOpts = [["0", "Alla innehav"], ["10", "Innehav > 10 mkr"], ["100", "Innehav > 100 mkr"], ["1000", "Innehav > 1 000 mkr"]].map(function (o) {
+    var minOpts = [["0", "Alla storlekar"], ["10", "Över 10 mkr"], ["100", "Över 100 mkr"], ["1000", "Över 1 000 mkr"]].map(function (o) {
       return '<option value="' + o[0] + '"' + (stockFilter.min === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
     }).join("");
     return '<div class="page-head"><h1>Aktier</h1><p class="meta">Svenska aktier som ägs av svenska fonder, ' + quarterLabel(state.q) + " jämfört med " + quarterLabel(state.raw.meta.prevId) + ".</p></div>" +
       '<div class="toolbar">' +
       '<input class="input" type="search" id="stockSearch" placeholder="Sök aktie eller ISIN" value="' + esc(stockFilter.q) + '" autocomplete="off">' +
       '<select class="select-sm" id="stockSector"><option value="">Alla sektorer</option>' + sectorOpts + "</select>" +
-      '<select class="select-sm" id="stockMin">' + minOpts + "</select>" +
+      '<select class="select-sm" id="stockMin" aria-label="Minsta fondinnehav" title="Fondernas sammanlagda innehav i aktien">' + minOpts + "</select>" +
       '<span class="count" id="stockCount"></span></div>' +
       '<div id="stockTable"></div>';
   }
@@ -289,7 +301,9 @@
       if (stockFilter.sector && s.sector !== stockFilter.sector) return false;
       return !q || s.name.toLowerCase().indexOf(q) >= 0 || s.isin.toLowerCase().indexOf(q) >= 0;
     });
-    $("stockTable").innerHTML = table("stocks", [col.stock, col.sector, col.funds, col.dFunds, col.value, col.flow, col.chg], rows,
+    var nameWithSub = stockCol(function (s) { return esc(s.sector) + " · " + int(s.f2) + " fonder · " + mkr(s.val2) + " mkr"; });
+    var fundsWide = { key: "f2", label: "Fonder", hideSm: true, cell: col.funds.cell, value: col.funds.value };
+    $("stockTable").innerHTML = table("stocks", [nameWithSub, col.sector, fundsWide, col.dFunds, col.value, col.flow, col.chg], rows,
       { sort: { col: "flow", dir: -1 }, empty: "Inga aktier matchar filtret." });
     $("stockCount").textContent = rows.length + " aktier";
   }
@@ -301,11 +315,11 @@
     var trades = s.trades;
     var unchanged = s.f2b - trades.filter(function (t) { return t.s2; }).length;
     var cols = [
-      { key: "fund", label: "Fond", align: "l", cls: "name", cell: function (t) { return '<a href="' + fundHref(t.f) + '">' + esc(t.f.name) + "</a>"; }, value: function (t) { return t.f.name; } },
-      { key: "co", label: "Fondbolag", align: "l", cls: "muted", cell: function (t) { return esc(t.f.co); }, value: function (t) { return t.f.co; } },
-      { key: "chg", label: "Ändring", align: "l", cell: function (t) { return changeLabel(t.s1, t.s2); } },
-      { key: "s1", label: "Antal " + quarterLabel(state.raw.meta.prevId), cell: function (t) { return int(t.s1); }, value: function (t) { return t.s1; } },
-      { key: "s2", label: "Antal " + quarterLabel(state.q), cell: function (t) { return int(t.s2); }, value: function (t) { return t.s2; } },
+      { key: "fund", label: "Fond", align: "l", cls: "name", cell: function (t) { return nameCell(fundHref(t.f), t.f.name, changeLabel(t.s1, t.s2) + " " + esc(t.f.co)); }, value: function (t) { return t.f.name; } },
+      { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (t) { return esc(t.f.co); }, value: function (t) { return t.f.co; } },
+      { key: "chg", label: "Ändring", align: "l", hideSm: true, cell: function (t) { return changeLabel(t.s1, t.s2); } },
+      { key: "s1", label: "Antal " + quarterLabel(state.raw.meta.prevId), hideSm: true, cell: function (t) { return int(t.s1); }, value: function (t) { return t.s1; } },
+      { key: "s2", label: "Antal " + quarterLabel(state.q), hideSm: true, cell: function (t) { return int(t.s2); }, value: function (t) { return t.s2; } },
       { key: "d", label: "Förändring (mkr)", cell: function (t) { return '<span class="' + cls(t.d) + '">' + mkr(t.d, true) + "</span>"; }, value: function (t) { return t.d; } },
       { key: "w", label: "Andel av fond", cell: function (t) { return t.f.aum2 ? nf1.format(t.s2 * s.price / t.f.aum2 * 100) + " %" : "–"; }, value: function (t) { return t.f.aum2 ? t.s2 * s.price / t.f.aum2 : null; } }
     ];
@@ -350,13 +364,13 @@
       return !q || f.name.toLowerCase().indexOf(q) >= 0 || f.co.toLowerCase().indexOf(q) >= 0;
     });
     var cols = [
-      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (f) { return '<a href="' + fundHref(f) + '">' + esc(f.name) + "</a>" + (f.isIndex && !/index/i.test(f.name) ? ' <span class="label">Index</span>' : ""); }, value: function (f) { return f.name; } },
-      { key: "co", label: "Fondbolag", align: "l", cls: "muted", cell: function (f) { return esc(f.co); }, value: function (f) { return f.co; } },
-      { key: "aum", label: "Förmögenhet (mkr)", cell: function (f) { return mkr(f.aum2); }, value: function (f) { return f.aum2; } },
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (f) { return nameCell(fundHref(f), f.name, esc(f.co)) + (f.isIndex && !/index/i.test(f.name) ? ' <span class="label hide-sm">Index</span>' : ""); }, value: function (f) { return f.name; } },
+      { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return esc(f.co); }, value: function (f) { return f.co; } },
+      { key: "aum", label: "Förmögenhet (mkr)", hideSm: true, cell: function (f) { return mkr(f.aum2); }, value: function (f) { return f.aum2; } },
       { key: "se", label: "Sv. aktier (mkr)", cell: function (f) { return mkr(f.seVal); }, value: function (f) { return f.seVal; } },
-      { key: "n", label: "Innehav", cell: function (f) { return int(f.nHold); }, value: function (f) { return f.nHold; } },
-      { key: "b", label: "Köpt (mkr)", cell: function (f) { return f.both ? '<span class="pos">' + mkr(f.bought, true) + "</span>" : "–"; }, value: function (f) { return f.both ? f.bought : null; } },
-      { key: "s", label: "Sålt (mkr)", cell: function (f) { return f.both ? '<span class="neg">' + mkr(f.sold, true) + "</span>" : "–"; }, value: function (f) { return f.both ? f.sold : null; } },
+      { key: "n", label: "Innehav", hideSm: true, cell: function (f) { return int(f.nHold); }, value: function (f) { return f.nHold; } },
+      { key: "b", label: "Köpt (mkr)", hideSm: true, cell: function (f) { return f.both ? '<span class="pos">' + mkr(f.bought, true) + "</span>" : "–"; }, value: function (f) { return f.both ? f.bought : null; } },
+      { key: "s", label: "Sålt (mkr)", hideSm: true, cell: function (f) { return f.both ? '<span class="neg">' + mkr(f.sold, true) + "</span>" : "–"; }, value: function (f) { return f.both ? f.sold : null; } },
       { key: "net", label: "Netto (mkr)", cell: function (f) { var v = f.bought + f.sold; return f.both ? '<span class="' + cls(v) + '">' + mkr(v, true) + "</span>" : "–"; }, value: function (f) { return f.both ? f.bought + f.sold : null; } }
     ];
     $("fundTable").innerHTML = table("funds", cols, rows, { sort: { col: "se", dir: -1 }, empty: "Inga fonder matchar filtret." });
@@ -373,11 +387,11 @@
       return { s: s, s1: s1, s2: s2, d: (s2 - s1) * s.price, v: s2 * s.price };
     }).filter(function (r) { return f.both ? (r.s1 || r.s2) : r.s2; });
     var cols = [
-      { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (r) { return '<a href="' + stockHref(r.s) + '">' + esc(r.s.name) + "</a>"; }, value: function (r) { return r.s.name; } },
-      { key: "chg", label: "Ändring", align: "l", cell: function (r) { return f.both ? changeLabel(r.s1, r.s2) : "–"; } },
-      { key: "s2", label: "Antal", cell: function (r) { return int(r.s2); }, value: function (r) { return r.s2; } },
+      { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (r) { return nameCell(stockHref(r.s), r.s.name, (f.both ? changeLabel(r.s1, r.s2) + " " : "") + mkr(r.v) + " mkr"); }, value: function (r) { return r.s.name; } },
+      { key: "chg", label: "Ändring", align: "l", hideSm: true, cell: function (r) { return f.both ? changeLabel(r.s1, r.s2) : "–"; } },
+      { key: "s2", label: "Antal", hideSm: true, cell: function (r) { return int(r.s2); }, value: function (r) { return r.s2; } },
       { key: "d", label: "Förändring (mkr)", cell: function (r) { return f.both ? '<span class="' + cls(r.d) + '">' + mkr(r.d, true) + "</span>" : "–"; }, value: function (r) { return f.both ? r.d : null; } },
-      { key: "v", label: "Värde (mkr)", cell: function (r) { return mkr(r.v); }, value: function (r) { return r.v; } },
+      { key: "v", label: "Värde (mkr)", hideSm: true, cell: function (r) { return mkr(r.v); }, value: function (r) { return r.v; } },
       { key: "w", label: "Andel av fond", cell: function (r) { return f.aum2 ? nf1.format(r.v / f.aum2 * 100) + " %" : "–"; }, value: function (r) { return r.v; } }
     ];
     var defaultSort = f.both ? { col: "d", dir: -1 } : { col: "v", dir: -1 };
@@ -464,8 +478,8 @@
 
   function renderSummary() {
     var t = state.totals, m = state.raw.meta;
-    $("summary").innerHTML = "<b>" + quarterLabel(m.id) + "</b> jämfört med <b>" + quarterLabel(m.prevId) + "</b> · <b>" + int(t.funds) + "</b> fonder · <b>" +
-      int(t.held) + "</b> aktier · Innehav <b>" + bigSek(t.value) + "</b> · Nettoköp <b class=\"" + cls(t.buy + t.sell) + "\">" + bigSek(t.buy + t.sell, true) + "</b>";
+    $("summary").innerHTML = "<b>" + quarterLabel(m.id) + "</b> jämfört med <b>" + quarterLabel(m.prevId) + "</b> · <b>" + int(t.funds) + "</b> fonder" +
+      '<span class="hide-sm"> · <b>' + int(t.held) + "</b> aktier · Innehav <b>" + bigSek(t.value) + "</b></span> · Nettoköp <b class=\"" + cls(t.buy + t.sell) + "\">" + bigSek(t.buy + t.sell, true) + "</b>";
     $("updated").textContent = "Uppdaterad " + m.built;
   }
 

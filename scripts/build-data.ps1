@@ -414,6 +414,8 @@ function Parse-Offer($text) {
   $r = @{ target = $null; price = $null; premium = $null; currency = $null }
   if (-not $text) { return $r }
   $t = $text -replace '­', '' -replace '[‐-–]', '-'
+  # Fotnotsmarkeringar som "aktier3)" eller "Fortnox4)" stör tolkningen
+  $t = $t -replace '(?<=\p{L})\d{1,2}\)', ''
   $head = ($t -split "`n" | Select-Object -First 60) -join "`n"
   $patterns = @(
     '(?im)erbjudande\s+till\s+aktieägarna\s+i\s+(.+?)\s*$',
@@ -424,7 +426,7 @@ function Parse-Offer($text) {
   foreach ($p in $patterns) {
     $m = [regex]::Match($head, $p)
     $cand = $m.Groups[1].Value.Trim()
-    if ($m.Success -and $cand.Length -ge 2 -and $cand.Length -le 80 -and $cand -notmatch '^(?:stam)?aktier(?:na)?\b') { $r.target = $cand; break }
+    if ($m.Success -and $cand.Length -ge 2 -and $cand.Length -le 80 -and $cand -notmatch '(?i)^(?:stam)?aktier|\baktier\s+i\b') { $r.target = $cand; break }
   }
   # Första premien mot stängningskursen, även när den står i en punktlista efter "en premie om:"
   $pm = [regex]::Match($t, '(?is)premie\s+(?:om|på).{0,250}?(\d{1,3}(?:[,.]\d+)?)\s*(?:procent|%)\s+(?:jämfört\s+med|i\s+förhållande\s+till|i\s+relation\s+till)\s+(?:den\s+)?(?:stängnings|slut)kurs')
@@ -462,7 +464,7 @@ function Quarter-Before($date) {
 }
 
 $NormCache = @{}
-$OfferParser = 2   # höj när tolkningen av erbjudandehandlingar ändras, så läses alla om en gång
+$OfferParser = 3   # höj när tolkningen av erbjudandehandlingar ändras, så läses alla om en gång
 function Build-Offers($releases, $file, [int]$fromYear) {
   $hasPdf = $null -ne (Get-Command pdftotext -ErrorAction SilentlyContinue)
   $existing = @{}

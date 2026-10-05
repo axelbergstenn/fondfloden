@@ -25,10 +25,15 @@
         <a href="#/fonder" data-nav="fonder">Fonder</a>
         <a href="#/forvaltare" data-nav="forvaltare">Förvaltare</a>
         <a href="#/avgifter" data-nav="avgifter">Avgifter</a>
-        <a href="#/om" data-nav="om">Om datan</a>
+        <a href="#/portfolj" data-nav="portfolj">Min portfölj</a>
+        <a href="#/jamfor" data-nav="jamfor">Jämför</a>
         <a href="#/kontakt" data-nav="kontakt">Kontakt</a>
       </nav>
       <div class="topbar-right">
+        <button type="button" class="search-btn" id="searchBtn" aria-label="Sök aktie eller fond (Ctrl K)">
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span class="search-btn-text">Sök</span><kbd>Ctrl K</kbd>
+        </button>
         <label class="visually-hidden" for="quarter">Kvartal</label>
         <select id="quarter" class="select-sm" disabled><option>Laddar…</option></select>
       </div>
@@ -53,8 +58,23 @@
   <footer class="container footer">
     <span>Källa: <a href="https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" rel="noopener" target="_blank">Finansinspektionen</a></span>
     <span id="updated"></span>
+    <a href="#/om">Om datan och metoden</a>
+    <a href="#/kontakt">Kontakt</a>
     <span>Inte investeringsrådgivning.</span>
   </footer>
+
+  <div class="search-modal" id="searchModal" hidden>
+    <div class="search-backdrop" data-search-close></div>
+    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Sök">
+      <div class="search-field">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="searchInput" class="search-input" type="search" placeholder="Sök aktie, ISIN eller fond" autocomplete="off" aria-controls="searchResults">
+        <button type="button" class="search-close" data-search-close aria-label="Stäng">Esc</button>
+      </div>
+      <ul id="searchResults" class="search-results" role="listbox"></ul>
+      <div class="search-foot"><span><kbd>↑</kbd><kbd>↓</kbd> välj</span><span><kbd>Enter</kbd> öppna</span><span><kbd>Esc</kbd> stäng</span></div>
+    </div>
+  </div>
 
   <script src="assets/charts.js"></script>
   <script src="assets/app.js"></script>

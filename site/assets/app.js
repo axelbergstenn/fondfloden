@@ -417,11 +417,12 @@
         : highlight("Längsta köpsvit", null, null, '<span class="muted">Laddar…</span>', "")) +
       "</div>";
 
-    return highlights +
+    return watchBlock() + highlights +
       '<div class="grid-2 section-gap">' +
       block("Störst nettoköp", "Förändring i antal aktier × kurs vid kvartalsslut", table("ov-buy", flowCols, buys, st) + '<a class="more" href="#/aktier">Alla aktier →</a>') +
       block("Störst nettosälj", "&nbsp;", table("ov-sell", flowCols, sells, st)) +
       "</div>" +
+      sectorBlock(hasHist) +
       '<div class="grid-2 section-gap">' +
       block("Längsta köpsviter", "Aktier som fonderna nettoköpt flest kvartal i rad", buyStreaks ? table("ov-bs", streakCols(1), streakRows(buyStreaks.slice(0, 10)), st) : loadingBlock("Laddar historik…")) +
       block("Längsta säljsviter", "Aktier som fonderna nettosålt flest kvartal i rad", sellStreaks ? table("ov-ss", streakCols(-1), streakRows(sellStreaks.slice(0, 10)), st) : loadingBlock("Laddar historik…")) +
@@ -507,7 +508,7 @@
     if (s && s.price) metaParts.push("Kurs " + nf1.format(s.price) + " kr (" + esc(d.meta.curr) + ")");
     if (s && s.split) metaParts.push("Splitjusterad ×" + nf1.format(s.split));
 
-    var html = '<div class="page-head">' + crumbs + "<h1>" + esc(name) + '</h1><p class="meta">' + metaParts.join(" · ") + "</p></div>";
+    var html = '<div class="page-head">' + crumbs + '<div class="title-row"><h1>' + esc(name) + "</h1>" + starBtn("stocks", isin) + '</div><p class="meta">' + metaParts.join(" · ") + "</p></div>";
 
     if (s) {
       html += '<dl class="figures">' +
@@ -651,10 +652,13 @@
     var wF = hasWorld ? d.world.fundById[id] : null;
     var cat = d.fi[id] ? fundCategory(d.fi[id]) : "other";
 
-    var html = '<div class="page-head"><div class="crumbs"><a href="#/fonder">Fonder</a> / ' + esc(f.name) + "</div><h1>" + esc(f.name) +
+    var html = '<div class="page-head"><div class="crumbs"><a href="#/fonder">Fonder</a> / ' + esc(f.name) + '</div><div class="title-row"><h1>' + esc(f.name) +
       (cat === "index" && !/index/i.test(f.name) ? ' <span class="label">Index</span>' : "") +
       (cat === "closet" ? ' <span class="label warn">Indexnära</span>' : "") +
-      '</h1><p class="meta">' + esc(f.co) + (f.bench ? " · Jämförelseindex: " + esc(f.bench) : "") + "</p></div>";
+      '</h1><div class="actions">' + starBtn("funds", id) +
+      '<a class="btn" href="#/jamfor/' + encodeURIComponent(id) + '">Jämför</a>' +
+      (d.fi[id] ? '<button type="button" class="btn" data-pf-add="' + esc(id) + '">' + (inPortfolio(id) ? "I din portfölj ✓" : "+ Min portfölj") + "</button>" : "") +
+      '</div></div><p class="meta">' + esc(f.co) + (f.bench ? " · Jämförelseindex: " + esc(f.bench) : "") + "</p></div>";
 
     if (d.fi[id]) {
       var fi = d.fi[id];
@@ -843,6 +847,430 @@
     return '<span class="legend-item"><i class="dot c-' + cat + '"></i>' + t + "</span>";
   }
 
+  // ---------- Bevakningslista ----------
+
+  function watchGet() {
+    var w = store("ff-watch");
+    return w && Array.isArray(w.stocks) && Array.isArray(w.funds) ? w : { stocks: [], funds: [] };
+  }
+  function watching(kind, id) { return watchGet()[kind].indexOf(id) >= 0; }
+  function watchToggle(kind, id) {
+    var w = watchGet(), i = w[kind].indexOf(id);
+    if (i >= 0) w[kind].splice(i, 1); else w[kind].push(id);
+    store("ff-watch", w);
+  }
+  function starBtn(kind, id) {
+    var on = watching(kind, id);
+    return '<button type="button" class="star' + (on ? " on" : "") + '" data-watch="' + kind + ":" + esc(id) + '" aria-pressed="' + on + '">' +
+      '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l1.9 4 4.4.5-3.3 3 .9 4.3L8 11.1l-3.9 2.2.9-4.3-3.3-3 4.4-.5z"/></svg>' +
+      (on ? "Bevakas" : "Bevaka") + "</button>";
+  }
+
+  function watchBlock() {
+    var w = watchGet();
+    if (!w.stocks.length && !w.funds.length) return "";
+    var d = quarterData();
+    var needsWorld = w.stocks.some(function (i) { return i.slice(0, 2) !== "SE"; });
+    var hasWorld = !needsWorld || needWorld();
+    var hasHist = state.loading.history === "done";
+    var qi = hasHist ? state.history.qIndex[state.q] : null;
+    var stocks = w.stocks.map(function (isin) { return d.se.byIsin[isin] || (hasWorld && d.world ? d.world.byIsin[isin] : null); }).filter(Boolean);
+    var funds = w.funds.map(function (id) { return d.fi[id] || d.se.fundById[id]; }).filter(Boolean);
+    var stockCols = [stockCol(function (s) { return int(s.f2) + " fonder"; }), col.flow, col.chg,
+      { key: "f2", label: "Fonder", hideSm: true, cell: function (s) { return int(s.f2) + (s.dF ? ' <span class="' + cls(s.dF) + '">(' + signed(String(s.dF), s.dF) + ")</span>" : ""); } }];
+    if (hasHist) stockCols.push({ key: "streak", label: "Svit", hideSm: true, cell: function (s) {
+      var hs = histFor(s.isin), st = hs && qi != null ? streak(hs, qi) : null;
+      return st && st.n >= 2 ? '<span class="streak ' + (st.sign > 0 ? "pos" : "neg") + '">' + st.n + "</span>" : "–";
+    } });
+    var fundNet = function (f) {
+      var a = d.se.fundById[f.id], b = d.world && d.world.fundById[f.id], v = 0, any = false;
+      [a, b].forEach(function (m) { if (m && m.both) { v += m.bought + m.sold; any = true; } });
+      return any ? v : null;
+    };
+    var fundCols = [
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (f) { return nameCell(fundHref(f), f.name, esc(f.co)); } },
+      { key: "net", label: "Nettoköp (mkr)", cell: function (f) { var v = fundNet(f); return v == null ? "–" : '<span class="' + cls(v) + '">' + mkr(v, true) + "</span>"; } },
+      { key: "fee", label: "Avgift", cell: function (f) { return f.feeMax == null ? "–" : nf2.format(f.feeMax) + " %"; } }
+    ];
+    var parts = [];
+    if (stocks.length) parts.push(block("Dina bevakade aktier", "", table("watch-s", stockCols, stocks, { static: true })));
+    if (funds.length) parts.push(block("Dina bevakade fonder", "", table("watch-f", fundCols, funds, { static: true })));
+    return '<div class="watch ' + (parts.length > 1 ? "grid-2" : "") + '">' + parts.join("") + "</div>";
+  }
+
+  // ---------- Sektorrotation ----------
+
+  function sectorFlows(market) {
+    var h = state.history, out = {};
+    Object.keys(h.stocks).forEach(function (isin) {
+      if ((isin.slice(0, 2) === "SE") !== (market === "se")) return;
+      var e = h.stocks[isin], sec = e[1] || "Övrigt";
+      var row = out[sec] = out[sec] || {};
+      e[3].forEach(function (r) { var v = flowOf(r); if (v != null) row[r[0]] = (row[r[0]] || 0) + v; });
+    });
+    return out;
+  }
+
+  function sectorBlock(hasHist) {
+    var title = "Sektorrotation";
+    if (!hasHist) return '<div class="section-gap">' + block(title, "", loadingBlock("Laddar historik…")) + "</div>";
+    var h = state.history, qi = h.qIndex[state.q];
+    if (qi == null || qi < 1) return "";
+    var flows = sectorFlows(state.market);
+    var sectors = Object.keys(flows).filter(function (s) { return s !== "Övrigt"; });
+    sectors.sort(function (a, b) { return (flows[b][qi] || 0) - (flows[a][qi] || 0); });
+    var maxNow = Math.max.apply(null, sectors.map(function (s) { return Math.abs(flows[s][qi] || 0); }).concat([1]));
+
+    var bars = '<ul class="divbars">' + sectors.map(function (s) {
+      var v = flows[s][qi] || 0, w = Math.abs(v) / maxNow * 50;
+      return "<li><span class=\"db-label\">" + esc(s) + '</span><span class="db-track"><i class="' + (v >= 0 ? "pos" : "neg") + '" style="width:' + w.toFixed(1) +
+        "%;" + (v >= 0 ? "left:50%" : "right:50%") + '"></i></span><span class="db-val ' + cls(v) + '">' + bigSek(v * 1e6, true) + "</span></li>";
+    }).join("") + "</ul>";
+
+    var first = Math.max(1, qi - 7), cols = [];
+    for (var k = first; k <= qi; k++) cols.push(k);
+    var maxAll = 1;
+    sectors.forEach(function (s) { cols.forEach(function (k) { maxAll = Math.max(maxAll, Math.abs(flows[s][k] || 0)); }); });
+    var heat = '<div class="table-wrap"><table class="heat"><thead><tr><th class="l">Sektor</th>' + cols.map(function (k, n) {
+      var q = h.quarters[k];
+      return '<th class="' + (n < cols.length - 4 ? "hide-sm" : "") + '">Q' + q.slice(5) + " " + q.slice(2, 4) + "</th>";
+    }).join("") + "</tr></thead><tbody>" + sectors.map(function (s) {
+      return '<tr><td class="l">' + esc(s) + "</td>" + cols.map(function (k, n) {
+        var v = flows[s][k] || 0, a = Math.min(1, Math.abs(v) / maxAll);
+        var pctMix = Math.round(8 + a * 62);
+        var bg = Math.abs(v) < 1 ? "" : ' style="background:color-mix(in srgb, var(' + (v > 0 ? "--bar-pos" : "--bar-neg") + ") " + pctMix + '%, transparent)"';
+        return '<td class="' + (n < cols.length - 4 ? "hide-sm" : "") + '"' + bg + ' title="' + esc(s + ", " + quarterLabel(h.quarters[k]) + ": " + bigSek(v * 1e6, true)) + '">' +
+          fixMinus((v > 0 ? "+" : "") + nf1.format(v / 1000)) + "</td>";
+      }).join("") + "</tr>";
+    }).join("") + "</tbody></table></div>";
+
+    return '<div class="grid-2 section-gap">' +
+      block(title, "Fondernas nettoköp per sektor " + quarterLabel(state.q) + (state.excludeIndex ? ", utan indexfonder" : ""), bars) +
+      block("Sektorer över tid", "Nettoköp per kvartal, miljarder kronor", heat) + "</div>";
+  }
+
+  // ---------- Gemensamt för portfölj och jämförelse ----------
+
+  function fundDatalist() {
+    return '<datalist id="fundNames">' + fundList().slice().sort(function (a, b) { return a.name.localeCompare(b.name, "sv"); })
+      .map(function (f) { return '<option value="' + esc(f.name) + '"></option>'; }).join("") + "</datalist>";
+  }
+  function fundByName(name) {
+    var n = String(name || "").trim().toLowerCase(), list = fundList();
+    for (var i = 0; i < list.length; i++) if (list[i].name.toLowerCase() === n) return list[i];
+    return null;
+  }
+
+  // Alla aktieinnehav i en fond (svenska och utländska) med värde i kronor
+  function fundPositions(id) {
+    var d = quarterData(), out = [];
+    [d.se, d.world].forEach(function (ds) {
+      var f = ds && ds.fundById[id];
+      if (!f || f.aum2 == null) return;
+      f.h.forEach(function (r) {
+        var s = ds.stocks[r[0]], s2 = r[2] || 0;
+        if (s2 && s.price) out.push({ s: s, v: s2 * s.price });
+      });
+    });
+    return out;
+  }
+
+  // Vikter normerade mot fondens samlade aktieinnehav
+  function stockWeights(id) {
+    var pos = fundPositions(id), tot = 0, w = {}, s = {};
+    pos.forEach(function (o) { tot += o.v; });
+    pos.forEach(function (o) { w[o.s.isin] = (w[o.s.isin] || 0) + o.v / (tot || 1); s[o.s.isin] = o.s; });
+    return { w: w, s: s, n: pos.length };
+  }
+
+  function overlap(idA, idB) {
+    var a = stockWeights(idA), b = stockWeights(idB), sum = 0, common = [];
+    Object.keys(a.w).forEach(function (k) {
+      if (!b.w[k]) return;
+      sum += Math.min(a.w[k], b.w[k]);
+      common.push({ s: a.s[k], wa: a.w[k], wb: b.w[k] });
+    });
+    return { value: sum, common: common, a: a, b: b };
+  }
+
+  function shareBars(items, total, limit) {
+    return '<ul class="sharebars">' + items.slice(0, limit || 10).map(function (it) {
+      var p = total ? it.v / total : 0;
+      return '<li><span class="sb-label">' + esc(it.label) + '</span><span class="sb-track"><i style="width:' + (p * 100).toFixed(1) + '%"></i></span><span class="sb-val">' + nf1.format(p * 100) + " %</span></li>";
+    }).join("") + "</ul>";
+  }
+
+  function kr(v) { return nf0.format(Math.round(v || 0)) + " kr"; }
+
+  // ---------- Min fondportfölj ----------
+
+  function loadPortfolio() {
+    var p = store("ff-portfolio");
+    return Array.isArray(p) ? p.filter(function (x) { return x && x.id && x.amount > 0; }) : [];
+  }
+  function savePortfolio(p) { store("ff-portfolio", p); }
+  function inPortfolio(id) { return loadPortfolio().some(function (x) { return x.id === id; }); }
+  function encodePortfolio(p) { return p.map(function (x) { return x.id + "-" + Math.round(x.amount); }).join("."); }
+  function decodePortfolio(s) {
+    return String(s || "").split(".").map(function (t) { var a = t.split("-"); return { id: a[0], amount: +a[1] || 0 }; })
+      .filter(function (x) { return x.id && x.amount > 0; });
+  }
+  function addToPortfolio(id, amount) {
+    var p = loadPortfolio(), ex = p.filter(function (x) { return x.id === id; })[0];
+    if (ex) ex.amount += amount; else p.push({ id: id, amount: amount });
+    savePortfolio(p);
+  }
+
+  function viewPortfolio(arg) {
+    document.title = "Min fondportfölj – Fondflöden";
+    var head = '<div class="page-head"><h1>Min fondportfölj</h1><p class="meta lead">Fyll i dina fonder och hur mycket du har i varje. Då ser du vilka aktier du faktiskt äger, ' +
+      "vad du betalar i avgifter och om dina fonder äger samma saker. Portföljen sparas bara i din webbläsare.</p></div>";
+    if (!needWorld()) return head + (failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar fondernas innehav…"));
+    var d = quarterData();
+    var shared = !!arg;
+    var p = (shared ? decodePortfolio(arg) : loadPortfolio()).filter(function (x) { return d.fi[x.id]; });
+
+    var form = shared
+      ? '<div class="notice pf-shared">Du tittar på en delad portfölj. <button type="button" class="btn btn-primary" data-pf-adopt="' + esc(arg) + '">Spara som min portfölj</button></div>'
+      : '<form class="pf-form" id="pfForm" autocomplete="off">' + fundDatalist() +
+        '<input class="input" id="pfFund" list="fundNames" placeholder="Sök och välj fond" aria-label="Fond">' +
+        '<input class="input pf-amount" id="pfAmount" type="number" min="1" step="any" inputmode="numeric" placeholder="Belopp i kr" aria-label="Belopp i kronor">' +
+        '<button class="btn btn-primary" type="submit">Lägg till</button><span class="form-msg" id="pfMsg" role="status"></span></form>';
+
+    if (!p.length) {
+      return head + form + '<div class="empty-state"><h2>Lägg till din första fond</h2><p>Skriv namnet på en fond du äger, till exempel <i>Swedbank Robur Ny Teknik</i>, ' +
+        "och hur många kronor du har i den. Du kan också trycka på <b>+ Min portfölj</b> på en fonds sida.</p></div>";
+    }
+
+    var total = 0, feeKr = 0, other = 0, byIsin = {};
+    var rows = p.map(function (x) {
+      var fi = d.fi[x.id], sumW = 0;
+      fundPositions(x.id).forEach(function (o) {
+        var w = o.v / fi.aum;
+        sumW += w;
+        var e = byIsin[o.s.isin] = byIsin[o.s.isin] || { s: o.s, kr: 0, via: [] };
+        e.kr += x.amount * w;
+        if (e.via.indexOf(fi.name) < 0) e.via.push(fi.name);
+      });
+      sumW = Math.min(1, sumW);
+      other += x.amount * (1 - sumW);
+      total += x.amount;
+      var fee = fi.feeMax != null ? x.amount * fi.feeMax / 100 : 0;
+      feeKr += fee;
+      return { x: x, fi: fi, fee: fee, eq: sumW };
+    });
+    var holdings = Object.keys(byIsin).map(function (k) { return byIsin[k]; }).sort(function (a, b) { return b.kr - a.kr; });
+    var inStocks = total - other;
+    var top10 = holdings.slice(0, 10).reduce(function (a, e) { return a + e.kr; }, 0);
+
+    var group = function (keyFn) {
+      var m = {};
+      holdings.forEach(function (e) { var k = keyFn(e.s); m[k] = (m[k] || 0) + e.kr; });
+      return Object.keys(m).map(function (k) { return { label: k, v: m[k] }; }).sort(function (a, b) { return b.v - a.v; });
+    };
+    var sectors = group(function (s) { return s.sector || "Övrigt"; });
+    var countries = group(function (s) { return countryName(s.country) || "Okänt"; });
+
+    // Fonder som äger samma aktier
+    var pairs = [];
+    for (var i = 0; i < p.length; i++) for (var j = i + 1; j < p.length; j++) {
+      var ov = overlap(p[i].id, p[j].id).value;
+      if (ov >= 0.4) pairs.push({ a: d.fi[p[i].id], b: d.fi[p[j].id], v: ov });
+    }
+    pairs.sort(function (a, b) { return b.v - a.v; });
+
+    var fundCols = [
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (r) { return nameCell(fundHref(r.fi), r.fi.name, esc(r.fi.co) + " · " + feeText(r.fi)); } },
+      { key: "amount", label: "Belopp (kr)", cell: function (r) {
+        return shared ? nf0.format(r.x.amount) : '<input class="input pf-edit" type="number" min="0" step="any" inputmode="numeric" value="' + Math.round(r.x.amount) + '" data-pf-id="' + esc(r.x.id) + '" aria-label="Belopp i ' + esc(r.fi.name) + '">';
+      } },
+      { key: "share", label: "Andel", hideSm: true, cell: function (r) { return nf1.format(r.x.amount / total * 100) + " %"; } },
+      { key: "fee", label: "Avgift per år", cell: function (r) { return r.fi.feeMax == null ? "–" : kr(r.fee); } },
+      { key: "eq", label: "Aktier", hideSm: true, cell: function (r) { return nf0.format(r.eq * 100) + " %"; } }
+    ];
+    if (!shared) fundCols.push({ key: "rm", label: "", cell: function (r) { return '<button type="button" class="icon-btn" data-pf-remove="' + esc(r.x.id) + '" aria-label="Ta bort ' + esc(r.fi.name) + '">✕</button>'; } });
+
+    var holdCols = [
+      { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (e) { return nameCell(stockHref(e.s), e.s.name, kr(e.kr) + " · via " + esc(e.via.join(", "))); } },
+      { key: "kr", label: "Belopp", cell: function (e) { return kr(e.kr); } },
+      { key: "p", label: "Andel", cell: function (e) { return nf1.format(e.kr / total * 100) + " %"; } },
+      { key: "via", label: "Via", align: "l", cls: "muted", hideSm: true, cell: function (e) { return esc(e.via.join(", ")); } }
+    ];
+
+    var weightedFee = total ? feeKr / total * 100 : 0;
+    var shareUrl = location.href.split("#")[0] + "#/portfolj/" + encodePortfolio(p);
+
+    return head + form +
+      '<div class="highlights section-gap">' +
+      highlight("Portföljens värde", kr(total), null, "", p.length + (p.length === 1 ? " fond" : " fonder") + " · " + nf0.format(inStocks / total * 100) + " % i aktier") +
+      highlight("Avgifter per år", kr(feeKr), null, nf2.format(weightedFee) + " % i snitt", "Högsta avgiftsklassen i varje fond") +
+      highlight("Du äger", int(holdings.length) + " aktier", null, "", "De tio största är " + nf0.format(top10 / total * 100) + " % av portföljen") +
+      "</div>" +
+      (pairs.length ? '<div class="notice overlap-notice section-gap"><b>Dina fonder äger delvis samma aktier.</b><ul>' + pairs.slice(0, 4).map(function (x) {
+        return '<li><a href="#/jamfor/' + encodeURIComponent(x.a.id) + "/" + encodeURIComponent(x.b.id) + '">' + esc(x.a.name) + " och " + esc(x.b.name) + "</a> överlappar till " + nf0.format(x.v * 100) + " %.</li>";
+      }).join("") + "</ul></div>" : "") +
+      '<section class="block section-gap"><div class="block-head"><h2>Dina fonder</h2>' +
+      (shared ? "" : '<button type="button" class="btn" id="pfShare" data-url="' + esc(shareUrl) + '">Kopiera delningslänk</button>') + "</div>" +
+      table("pf-funds", fundCols, rows, { static: true }) + "</section>" +
+      '<div class="grid-2 section-gap pf-grid">' +
+      block("Dina största innehav", "Det du äger genom dina fonder, enligt fondernas senaste rapport " + quarterLabel(state.q), table("pf-hold", holdCols, holdings.slice(0, 25), { static: true }) +
+        (holdings.length > 25 ? '<p class="desc more-note">… och ' + int(holdings.length - 25) + " aktier till.</p>" : "")) +
+      '<div class="stack">' + block("Sektorer", "", shareBars(sectors, total, 11)) +
+      block("Länder", "", shareBars(countries, total, 8)) +
+      (other > total * 0.02 ? '<p class="desc">' + nf0.format(other / total * 100) + " % av portföljen ligger i räntor, kassa, fondandelar eller mindre innehav som inte syns här.</p>" : "") +
+      "</div></div>";
+  }
+
+  // ---------- Jämför fonder ----------
+
+  function viewCompare(idA, idB) {
+    document.title = "Jämför fonder – Fondflöden";
+    var head = '<div class="page-head"><h1>Jämför fonder</h1><p class="meta lead">Hur lika är två fonder egentligen? Överlappet visar hur stor del av innehaven som är gemensam.</p></div>';
+    if (!needWorld()) return head + (failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar fondernas innehav…"));
+    var d = quarterData(), A = d.fi[idA], B = d.fi[idB];
+    var form = '<form class="cmp-form" id="cmpForm" autocomplete="off">' + fundDatalist() +
+      '<input class="input" id="cmpA" list="fundNames" placeholder="Första fonden" aria-label="Första fonden" value="' + esc(A ? A.name : "") + '">' +
+      '<button type="button" class="icon-btn" id="cmpSwap" aria-label="Byt plats" title="Byt plats">⇄</button>' +
+      '<input class="input" id="cmpB" list="fundNames" placeholder="Andra fonden" aria-label="Andra fonden" value="' + esc(B ? B.name : "") + '">' +
+      '<button class="btn btn-primary" type="submit">Jämför</button><span class="form-msg" id="cmpMsg" role="status"></span></form>';
+    if (!A || !B) {
+      return head + form + '<div class="empty-state"><h2>Välj två fonder</h2><p>Till exempel <a href="#/jamfor/51718/60730">SEB Sverigefond och Handelsbanken Sverige Selektiv</a>, ' +
+        'eller <a href="#/jamfor/51545/51670">Swedbank Robur Småbolagsfond Sverige och Lannebo Småbolag</a>.</p></div>';
+    }
+    var ov = overlap(idA, idB);
+    var v = ov.value;
+    var verdict = v >= 0.6 ? "Fonderna är mycket lika. Att äga båda ger liten extra spridning."
+      : v >= 0.3 ? "Fonderna är ganska lika men har en del egna innehav."
+      : "Fonderna är olika. De kompletterar varandra.";
+    var common = ov.common.sort(function (a, b) { return Math.min(b.wa, b.wb) - Math.min(a.wa, a.wb); });
+    var only = function (x, y) {
+      return Object.keys(x.w).filter(function (k) { return !y.w[k]; }).map(function (k) { return { s: x.s[k], w: x.w[k] }; })
+        .sort(function (a, b) { return b.w - a.w; }).slice(0, 10);
+    };
+    var onlyA = only(ov.a, ov.b), onlyB = only(ov.b, ov.a);
+    var pw = function (w) { return nf1.format(w * 100) + " %"; };
+    var row = function (label, fn) { return "<tr><th class=\"l\" scope=\"row\">" + label + "</th><td>" + fn(A) + "</td><td>" + fn(B) + "</td></tr>"; };
+
+    return head + form +
+      '<div class="cmp-hero section-gap"><div class="cmp-score"><div class="cmp-num">' + nf0.format(v * 100) + ' %</div><div class="cmp-cap">överlapp</div></div>' +
+      '<div class="cmp-text"><p><b>' + esc(verdict) + "</b></p><p class=\"desc\">" + int(common.length) + " gemensamma aktier av " + int(ov.a.n) + " respektive " + int(ov.b.n) +
+      ". Överlappet är summan av den lägsta vikten för varje gemensam aktie.</p>" +
+      '<div class="cmp-bar" aria-hidden="true"><i style="width:' + (v * 100).toFixed(1) + '%"></i></div></div></div>' +
+      '<div class="table-wrap section-gap"><table class="cmp-table"><thead><tr><th class="l"></th><th><a href="' + fundHref(A) + '">' + esc(A.name) + '</a></th><th><a href="' + fundHref(B) + '">' + esc(B.name) + "</a></th></tr></thead><tbody>" +
+      row("Fondbolag", function (f) { return esc(f.co); }) +
+      row("Förmögenhet", function (f) { return bigSek(f.aum); }) +
+      row("Avgift", function (f) { return feeText(f); }) +
+      row("Aktiv risk", function (f) { return pctPlain(f.ar); }) +
+      row("Standardavvikelse", function (f) { return pctPlain(f.sd); }) +
+      row("Antal aktier", function (f) { return int(f.id === idA ? ov.a.n : ov.b.n); }) +
+      row("Jämförelseindex", function (f) { return esc(f.bench || "–"); }) +
+      "</tbody></table></div>" +
+      '<section class="block section-gap"><div class="block-head"><h2>Gemensamma innehav</h2><span class="note">Andel av fondernas aktieinnehav</span></div>' +
+      table("cmp-common", [
+        { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (c) { return nameCell(stockHref(c.s), c.s.name, ""); } },
+        { key: "a", label: esc(shortName(A.name)), cell: function (c) { return pw(c.wa); } },
+        { key: "b", label: esc(shortName(B.name)), cell: function (c) { return pw(c.wb); } }
+      ], common.slice(0, 25), { static: true, empty: "Fonderna har inga gemensamma aktier." }) + "</section>" +
+      '<div class="grid-2 section-gap">' +
+      block("Bara i " + esc(A.name), "", table("cmp-a", [
+        { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (c) { return nameCell(stockHref(c.s), c.s.name, ""); } },
+        { key: "w", label: "Vikt", cell: function (c) { return pw(c.w); } }], onlyA, { static: true, empty: "Inga egna innehav." })) +
+      block("Bara i " + esc(B.name), "", table("cmp-b", [
+        { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (c) { return nameCell(stockHref(c.s), c.s.name, ""); } },
+        { key: "w", label: "Vikt", cell: function (c) { return pw(c.w); } }], onlyB, { static: true, empty: "Inga egna innehav." })) +
+      "</div>";
+  }
+
+  function shortName(n) { return n.length > 22 ? n.slice(0, 20) + "…" : n; }
+
+  // ---------- Sök ----------
+
+  var search = { open: false, sel: 0, items: [] };
+
+  function openSearch() {
+    if (!state.q || !quarterData() || !quarterData().se) return;
+    search.open = true;
+    $("searchModal").hidden = false;
+    document.body.classList.add("modal-open");
+    var input = $("searchInput");
+    input.value = "";
+    runSearch();
+    input.focus();
+    needWorld();
+  }
+  function closeSearch() {
+    search.open = false;
+    $("searchModal").hidden = true;
+    document.body.classList.remove("modal-open");
+    $("searchBtn").focus();
+  }
+
+  function scoreMatch(name, q) {
+    var n = name.toLowerCase();
+    if (n.indexOf(q) === 0) return 0;
+    if (n.indexOf(" " + q) >= 0) return 1;
+    if (n.indexOf(q) >= 0) return 2;
+    return -1;
+  }
+
+  function runSearch() {
+    var q = $("searchInput").value.trim().toLowerCase();
+    var d = quarterData(), items = [];
+    if (!q) {
+      var w = watchGet();
+      w.stocks.forEach(function (isin) {
+        var s = d.se.byIsin[isin] || (d.world && d.world.byIsin[isin]);
+        if (s) items.push({ kind: "Bevakade", label: s.name, sub: s.sector, href: stockHref(s) });
+      });
+      w.funds.forEach(function (id) { var f = d.fi[id]; if (f) items.push({ kind: "Bevakade", label: f.name, sub: f.co, href: fundHref(f) }); });
+    } else {
+      var stocks = [];
+      [d.se, d.world].forEach(function (ds) {
+        if (!ds) return;
+        ds.stocks.forEach(function (s) {
+          if (!s.f2 && !s.f1b) return;
+          var sc = s.isin.toLowerCase() === q ? 0 : scoreMatch(s.name, q);
+          if (sc >= 0) stocks.push({ s: s, sc: sc });
+        });
+      });
+      stocks.sort(function (a, b) { return a.sc - b.sc || b.s.val2 - a.s.val2; });
+      stocks.slice(0, 8).forEach(function (x) {
+        items.push({ kind: "Aktier", label: x.s.name, sub: (x.s.isin.slice(0, 2) === "SE" ? "" : countryName(x.s.country) + " · ") + x.s.sector + " · " + int(x.s.f2) + " fonder", href: stockHref(x.s) });
+      });
+      var funds = fundList().map(function (f) { return { f: f, sc: Math.min(scoreMatch(f.name, q), 99) }; }).filter(function (x) { return x.sc >= 0; });
+      funds.sort(function (a, b) { return a.sc - b.sc || b.f.aum - a.f.aum; });
+      funds.slice(0, 6).forEach(function (x) { items.push({ kind: "Fonder", label: x.f.name, sub: x.f.co + " · " + bigSek(x.f.aum), href: fundHref(x.f) }); });
+      var pages = [["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
+      pages.forEach(function (pg) { if (scoreMatch(pg[0], q) >= 0) items.push({ kind: "Sidor", label: pg[0], sub: "", href: pg[1] }); });
+    }
+    search.items = items;
+    search.sel = 0;
+    var html = "", last = "";
+    items.forEach(function (it, i) {
+      if (it.kind !== last) { html += '<li class="sr-group" role="presentation">' + it.kind + "</li>"; last = it.kind; }
+      html += '<li role="option" id="sr-' + i + '" class="sr-item" data-sr="' + i + '"' + (i === 0 ? ' aria-selected="true"' : "") + '><span class="sr-label">' + esc(it.label) + "</span>" +
+        (it.sub ? '<span class="sr-sub">' + esc(it.sub) + "</span>" : "") + "</li>";
+    });
+    if (!items.length) {
+      html = '<li class="sr-empty">' + (q ? "Inga träffar på \"" + esc(q) + "\"." : "Sök bland " + int(d.se.stocks.length + (d.world ? d.world.stocks.length : 0)) + " aktier och " + int(fundList().length) + " fonder.") + "</li>";
+    }
+    $("searchResults").innerHTML = html;
+  }
+
+  function moveSel(delta) {
+    if (!search.items.length) return;
+    search.sel = (search.sel + delta + search.items.length) % search.items.length;
+    document.querySelectorAll(".sr-item").forEach(function (li) { li.removeAttribute("aria-selected"); });
+    var cur = $("sr-" + search.sel);
+    if (cur) { cur.setAttribute("aria-selected", "true"); cur.scrollIntoView({ block: "nearest" }); }
+  }
+  function pickSel(i) {
+    var it = search.items[i == null ? search.sel : i];
+    if (!it) return;
+    closeSearch();
+    location.hash = it.href;
+  }
+
   // ---------- Om och kontakt ----------
 
   function viewAbout() {
@@ -887,7 +1315,7 @@
 
   function route() {
     var parts = location.hash.replace(/^#\/?/, "").split("/");
-    return { page: parts[0] || "oversikt", arg: decodeURIComponent(parts[1] || "") };
+    return { page: parts[0] || "oversikt", arg: decodeURIComponent(parts[1] || ""), arg2: decodeURIComponent(parts[2] || "") };
   }
 
   function render() {
@@ -903,6 +1331,8 @@
       case "fond": html = viewFund(r.arg); break;
       case "forvaltare": html = viewManagers(); break;
       case "avgifter": html = viewFees(); break;
+      case "portfolj": html = viewPortfolio(r.arg); break;
+      case "jamfor": html = viewCompare(r.arg, r.arg2); break;
       case "om": html = viewAbout(); break;
       case "kontakt": html = viewContact(); break;
       default: html = viewOverview();
@@ -917,6 +1347,7 @@
     });
     $("marketSwitch").hidden = !MARKET_PAGES[r.page];
     renderSummary();
+    if (search.open) runSearch();
   }
 
   function renderSummary() {
@@ -977,6 +1408,57 @@
       if (mk.closest("#marketSwitch")) render();
       return; // länkar med data-market (brödsmulor) navigerar som vanligt
     }
+    // Sök
+    if (e.target.closest("#searchBtn")) { openSearch(); return; }
+    if (e.target.closest("[data-search-close]")) { closeSearch(); return; }
+    var sr = e.target.closest("[data-sr]");
+    if (sr) { pickSel(+sr.getAttribute("data-sr")); return; }
+
+    // Bevakning
+    var wt = e.target.closest("[data-watch]");
+    if (wt) {
+      var key0 = wt.getAttribute("data-watch"), kind = key0.split(":")[0], wid = key0.slice(kind.length + 1);
+      watchToggle(kind, wid);
+      wt.outerHTML = starBtn(kind, wid);
+      var again0 = document.querySelector('[data-watch="' + key0 + '"]');
+      if (again0) again0.focus();
+      return;
+    }
+
+    // Portfölj
+    var pfAdd = e.target.closest("[data-pf-add]");
+    if (pfAdd) {
+      var pid = pfAdd.getAttribute("data-pf-add");
+      if (!inPortfolio(pid)) addToPortfolio(pid, 10000);
+      location.hash = "#/portfolj";
+      return;
+    }
+    var pfRm = e.target.closest("[data-pf-remove]");
+    if (pfRm) {
+      var rid = pfRm.getAttribute("data-pf-remove");
+      savePortfolio(loadPortfolio().filter(function (x) { return x.id !== rid; }));
+      render();
+      return;
+    }
+    var adopt = e.target.closest("[data-pf-adopt]");
+    if (adopt) {
+      savePortfolio(decodePortfolio(adopt.getAttribute("data-pf-adopt")));
+      location.hash = "#/portfolj";
+      return;
+    }
+    if (e.target.id === "pfShare") {
+      var sb = e.target, url = sb.getAttribute("data-url");
+      var ok = function () { sb.textContent = "Länken är kopierad"; setTimeout(function () { sb.textContent = "Kopiera delningslänk"; }, 2500); };
+      var fallback = function () { sb.outerHTML = '<input class="input share-url" readonly value="' + esc(url) + '" onfocus="this.select()">'; };
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(ok, fallback); else fallback();
+      return;
+    }
+    if (e.target.closest("#cmpSwap")) {
+      var a = $("cmpA"), bb = $("cmpB"), t = a.value;
+      a.value = bb.value; bb.value = t;
+      return;
+    }
+
     var fs = e.target.closest("[data-fee-scope],[data-fee-list]");
     if (fs) {
       if (fs.hasAttribute("data-fee-scope")) feeFilter.scope = fs.getAttribute("data-fee-scope");
@@ -1001,7 +1483,37 @@
     if (again) again.focus({ preventScroll: true });
   });
 
+  document.addEventListener("submit", function (e) {
+    if (e.target.id === "pfForm") {
+      e.preventDefault();
+      var f = fundByName($("pfFund").value), amount = parseFloat(String($("pfAmount").value).replace(",", "."));
+      if (!f) { $("pfMsg").textContent = "Välj en fond i listan."; $("pfFund").focus(); return; }
+      if (!(amount > 0)) { $("pfMsg").textContent = "Fyll i hur många kronor du har i fonden."; $("pfAmount").focus(); return; }
+      addToPortfolio(f.id, amount);
+      render();
+      if ($("pfFund")) $("pfFund").focus();
+    }
+    if (e.target.id === "cmpForm") {
+      e.preventDefault();
+      var A = fundByName($("cmpA").value), B = fundByName($("cmpB").value);
+      if (!A || !B) { $("cmpMsg").textContent = "Välj två fonder i listan."; return; }
+      location.hash = "#/jamfor/" + encodeURIComponent(A.id) + "/" + encodeURIComponent(B.id);
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+    if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) { e.preventDefault(); search.open ? closeSearch() : openSearch(); return; }
+    if (e.key === "/" && !typing && !search.open) { e.preventDefault(); openSearch(); return; }
+    if (!search.open) return;
+    if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); moveSel(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); moveSel(-1); }
+    else if (e.key === "Enter" && e.target.id === "searchInput") { e.preventDefault(); pickSel(); }
+  });
+
   document.addEventListener("input", function (e) {
+    if (e.target.id === "searchInput") { runSearch(); return; }
     if (e.target.id === "stockSearch") { stockFilter.q = e.target.value; renderStockTable(); }
     if (e.target.id === "fundSearch") { fundFilter.q = e.target.value; renderFundTable(); }
   });
@@ -1012,6 +1524,13 @@
     if (id === "fundCo") { fundFilter.co = e.target.value; renderFundTable(); }
     if (id === "fundType") { fundFilter.type = e.target.value; renderFundTable(); }
     if (id === "quarter") selectQuarter(e.target.value);
+    if (e.target.hasAttribute && e.target.hasAttribute("data-pf-id")) {
+      var pid = e.target.getAttribute("data-pf-id"), val = parseFloat(String(e.target.value).replace(",", "."));
+      var p = loadPortfolio();
+      p.forEach(function (x) { if (x.id === pid) x.amount = val > 0 ? val : x.amount; });
+      savePortfolio(p);
+      render();
+    }
     if (id === "excludeIndex") {
       state.excludeIndex = e.target.checked;
       store("ff-exclude-index", state.excludeIndex);

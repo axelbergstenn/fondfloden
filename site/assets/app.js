@@ -1256,7 +1256,12 @@
       var funds = fundList().map(function (f) { return { f: f, sc: Math.min(scoreMatch(f.name, q), 99) }; }).filter(function (x) { return x.sc >= 0; });
       funds.sort(function (a, b) { return a.sc - b.sc || b.f.aum - a.f.aum; });
       funds.slice(0, 6).forEach(function (x) { items.push({ kind: "Fonder", label: x.f.name, sub: x.f.co + " · " + bigSek(x.f.aum), href: fundHref(x.f) }); });
-      var pages = [["Blankning", "#/blankning"], ["Kvartalsrapport", "#/rapport"], ["Uppköp", "#/uppkop"], ["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
+      if (state.shorts) {
+        holdersNow().filter(function (h) { return scoreMatch(h.name, q) >= 0; }).slice(0, 4).forEach(function (h) {
+          items.push({ kind: "Blankare", label: h.name, sub: h.positions.length + " aktier blankade", href: holderHref(h.name) });
+        });
+      }
+      var pages = [["Blankning", "#/blankning"], ["Blankare", "#/blankare"], ["Kvartalsrapport", "#/rapport"], ["Uppköp", "#/uppkop"], ["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
       pages.forEach(function (pg) { if (scoreMatch(pg[0], q) >= 0) items.push({ kind: "Sidor", label: pg[0], sub: "", href: pg[1] }); });
     }
     search.items = items;
@@ -1491,7 +1496,7 @@
     var holderCols = [
       { key: "name", label: "Blankare", align: "l", cls: "name", cell: function (h) {
         var tops = h.top.sort(function (a, b) { return b.pct - a.pct; }).slice(0, 3).map(function (c) { return (d.names[c.isin] ? prettyName(d.names[c.isin]) : c.isin) + " " + nf2.format(c.pct) + " %"; }).join(", ");
-        return '<span class="nm-plain">' + esc(h.name) + '</span><span class="sub">' + esc(tops) + "</span>";
+        return holderLink(h.name) + '<span class="sub">' + esc(tops) + "</span>";
       } },
       { key: "n", label: "Positioner", cell: function (h) { return int(h.n); } },
       { key: "sum", label: "Summa", hideSm: true, cell: function (h) { return nf2.format(h.sum) + " %"; } }
@@ -1500,7 +1505,7 @@
       { key: "date", label: "Datum", align: "l", cls: "muted", cell: function (r) { return r[0]; } },
       { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (r) {
         var s = shortStock(r[2]), nm = s ? s.name : prettyName(d.names[r[2]] || r[2]);
-        return (s ? '<a href="' + stockHref(s) + '">' + esc(nm) + "</a>" : '<span class="nm-plain">' + esc(nm) + "</span>") + '<span class="sub">' + esc(r[1]) + "</span>";
+        return (s ? '<a href="' + stockHref(s) + '">' + esc(nm) + "</a>" : '<span class="nm-plain">' + esc(nm) + "</span>") + '<span class="sub">' + holderLink(r[1]) + "</span>";
       } },
       { key: "p", label: "Ny position", cell: function (r) { return r[3] > 0 ? nf2.format(r[3]) + " %" : '<span class="muted">under 0,5 %</span>'; } }
     ];
@@ -1523,7 +1528,7 @@
         { key: "pct", label: "Blankat", cell: function (a) { return nf2.format(a.pct) + " %"; } },
         { key: "flow", label: "Fonderna köpte", cell: function (a) { var s = shortStock(a.isin); return '<span class="pos">' + mkr(s.flow, true) + " mkr</span>"; } }
       ], conflict, { static: true, empty: "Inga sådana aktier just nu." })) +
-      block("Största blankarna", "Fonder och förvaltare med flest offentliga positioner just nu.", table("shorts-holders", holderCols, holderList.slice(0, 12), { static: true })) +
+      block("Största blankarna", "Fonder och förvaltare med flest offentliga positioner just nu.", table("shorts-holders", holderCols, holderList.slice(0, 12), { static: true }) + '<a class="more" href="#/blankare">Alla blankare →</a>') +
       "</div>" +
       '<div class="grid-2 section-gap">' +
       block("Ökad blankning", "Störst ökning av offentliga positioner senaste 30 dagarna", table("shorts-up", chCols, rising, { static: true, empty: "Ingen ökning." })) +
@@ -1557,12 +1562,127 @@
     }
     if (hs.length) {
       parts.push(table("stock-shorts-" + isin, [
-        { key: "h", label: "Blankare", align: "l", cls: "name", cell: function (c) { return '<span class="nm-plain">' + esc(c.holder) + "</span>"; } },
+        { key: "h", label: "Blankare", align: "l", cls: "name", cell: function (c) { return holderLink(c.holder); } },
         { key: "p", label: "Position", cell: function (c) { return nf2.format(c.pct) + " %"; }, value: function (c) { return c.pct; } },
         { key: "d", label: "Sedan", cls: "muted", cell: function (c) { return c.date; } }
       ], hs, { sort: { col: "p", dir: -1 } }));
     }
     return html + (parts.length > 1 ? '<div class="grid-2">' + parts.join("") + "</div>" : parts.join("")) + "</section>";
+  }
+
+  // ---------- Blankare ----------
+
+  // Samma blankare har stavats olika genom åren ("MAVERICK CAPITAL, LTD" / "Maverick Capital Ltd")
+  function normHolder(s) {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")
+      .replace(/\b(ltd|limited|llc|lp|llp|l p|sa|inc|plc|corp|corporation|ab|as|gmbh|ag|co|the)\b/g, " ").replace(/\s+/g, " ").trim();
+  }
+  var SWEDISH_HOLDER_RE = /\bAB\b|fonder\b|kapitalförvaltning/i;
+  function holderHref(name) { return "#/blankare/" + encodeURIComponent(normHolder(name)); }
+  function holderLink(name) {
+    return '<a href="' + holderHref(name) + '">' + esc(name) + "</a>" + (SWEDISH_HOLDER_RE.test(name) ? ' <span class="label">Svensk</span>' : "");
+  }
+
+  function holdersNow() {
+    var d = state.shorts, by = {};
+    d.cur.forEach(function (c) {
+      var k = normHolder(c.holder);
+      var h = by[k] = by[k] || { key: k, name: c.holder, positions: [], sum: 0 };
+      h.positions.push(c); h.sum += c.pct;
+    });
+    return Object.keys(by).map(function (k) { return by[k]; });
+  }
+
+  function needShortHistory() {
+    return need("shortsHistory", function () {
+      return getJSON("data/shorts-history.json").then(function (d) {
+        d.rows = d.rows.map(function (r) { return { date: r[0], holder: r[1], key: normHolder(r[1]), isin: r[2], pct: r[3] }; });
+        state.shortsHistory = d;
+      });
+    });
+  }
+
+  function shortStockCell(isin) {
+    var s = shortStock(isin), nm = s ? s.name : prettyName(state.shorts.names[isin] || isin);
+    return s ? '<a href="' + stockHref(s) + '">' + esc(nm) + "</a>" : '<span class="nm-plain">' + esc(nm) + "</span>";
+  }
+
+  function viewHolders() {
+    document.title = "Blankare – Fondinsyn";
+    var head = '<div class="page-head"><div class="crumbs"><a href="#/blankning">Blankning</a> / Blankare</div><h1>Vem blankar?</h1>' +
+      '<p class="meta lead">Alla fonder och förvaltare med en offentlig blankningsposition på minst 0,5 % i ett svenskt bolag. De flesta är hedgefonder; vanliga svenska aktiefonder får i regel inte blanka.</p></div>';
+    if (!needShorts()) return head + (failed("shorts") ? errorBlock() : loadingBlock("Laddar blankning…"));
+    var list = holdersNow();
+    var swedish = list.filter(function (h) { return SWEDISH_HOLDER_RE.test(h.name); });
+    var cols = [
+      { key: "name", label: "Blankare", align: "l", cls: "name", value: function (h) { return h.name; }, cell: function (h) {
+        var top = h.positions.slice().sort(function (a, b) { return b.pct - a.pct; }).slice(0, 3).map(function (c) {
+          var s = shortStock(c.isin); return (s ? s.name : prettyName(state.shorts.names[c.isin] || c.isin)) + " " + nf2.format(c.pct) + " %";
+        }).join(", ");
+        return holderLink(h.name) + '<span class="sub">' + esc(top) + "</span>";
+      } },
+      { key: "n", label: "Aktier", cell: function (h) { return int(h.positions.length); }, value: function (h) { return h.positions.length; } },
+      { key: "sum", label: "Summa", hideSm: true, cell: function (h) { return nf2.format(h.sum) + " %"; }, value: function (h) { return h.sum; } },
+      { key: "max", label: "Största", hideSm: true, cell: function (h) { return nf2.format(Math.max.apply(null, h.positions.map(function (c) { return c.pct; }))) + " %"; },
+        value: function (h) { return Math.max.apply(null, h.positions.map(function (c) { return c.pct; })); } }
+    ];
+    return head +
+      '<div class="highlights">' +
+      highlight("Blankare just nu", int(list.length) + " st", null, "", "Med minst en position på 0,5 %") +
+      highlight("Positioner", int(state.shorts.cur.length) + " st", null, "", "I " + int(Object.keys(state.shorts.holdersOf).length) + " olika aktier") +
+      highlight("Svenska fondbolag", swedish.length ? swedish.map(function (h) { return h.name; }).join(", ") : "Inga", null, "", swedish.length ? swedish.length + " svenska blankare" : "") +
+      "</div>" +
+      '<section class="block section-gap"><div class="block-head"><h2>Alla blankare</h2></div>' +
+      table("holders-all", cols, list, { sort: { col: "n", dir: -1 } }) + "</section>";
+  }
+
+  function viewHolder(key) {
+    if (!needShorts()) return failed("shorts") ? errorBlock() : loadingBlock("Laddar blankning…");
+    var d = state.shorts;
+    var now = holdersNow().filter(function (h) { return h.key === key; })[0];
+    var hasHist = needShortHistory();
+    var hist = hasHist ? state.shortsHistory.rows.filter(function (r) { return r.key === key; }) : [];
+    var name = now ? now.name : (hist[0] ? hist[0].holder : null);
+    if (!name && hasHist) return notFound("Blankaren finns inte i registret det senaste året.");
+    if (!name) return loadingBlock("Laddar historik…");
+    document.title = name + " – Fondinsyn";
+    var positions = now ? now.positions : [];
+    // Positioner som stängts det senaste året (finns i historiken men inte bland de aktuella)
+    var closed = {};
+    hist.forEach(function (r) {
+      if (positions.some(function (p) { return p.isin === r.isin; })) return;
+      if (!closed[r.isin] || closed[r.isin].date < r.date) closed[r.isin] = r;
+    });
+    var closedList = Object.keys(closed).map(function (k) { return closed[k]; });
+
+    var html = '<div class="page-head"><div class="crumbs"><a href="#/blankning">Blankning</a> / <a href="#/blankare">Blankare</a> / ' + esc(name) + "</div>" +
+      "<h1>" + esc(name) + (SWEDISH_HOLDER_RE.test(name) ? ' <span class="label">Svenskt fondbolag</span>' : "") + "</h1>" +
+      '<p class="meta">Offentliga blankningspositioner i svenska bolag enligt Finansinspektionen.</p></div>' +
+      '<dl class="figures">' + fig("Aktier blankade nu", int(positions.length)) +
+      fig("Summa", nf2.format(positions.reduce(function (s, p) { return s + p.pct; }, 0)) + " %", "av respektive bolags aktier") +
+      fig("Ändringar senaste året", hasHist ? int(hist.length) : "…") + fig("Stängda senaste året", hasHist ? int(closedList.length) : "…") + "</dl>";
+
+    html += '<section class="block section-gap"><div class="block-head"><h2>Blankar just nu</h2></div>' +
+      table("holder-now-" + key, [
+        { key: "s", label: "Aktie", align: "l", cls: "name", cell: function (p) { return shortStockCell(p.isin); } },
+        { key: "p", label: "Position", cell: function (p) { return '<span class="short-pct">' + nf2.format(p.pct) + " %</span>"; }, value: function (p) { return p.pct; } },
+        { key: "tot", label: "Totalt blankat", hideSm: true, cell: function (p) { var a = d.byIsin[p.isin]; return a ? nf2.format(a.pct) + " %" : "–"; } },
+        { key: "f", label: "Fondernas nettoköp " + quarterLabel(state.q), hideSm: true, cell: function (p) { var s = shortStock(p.isin); return s && s.netFlow != null ? '<span class="' + cls(s.flow) + '">' + mkr(s.flow, true) + " mkr</span>" : "–"; } },
+        { key: "d", label: "Senast ändrad", cls: "muted", cell: function (p) { return p.date; }, value: function (p) { return p.date; } }
+      ], positions, { sort: { col: "p", dir: -1 }, empty: "Inga positioner på minst 0,5 % just nu." }) + "</section>";
+
+    if (!hasHist) return html + '<section class="block section-gap">' + loadingBlock("Laddar historik…") + "</section>";
+    html += '<div class="grid-2 section-gap">' +
+      block("Stängda positioner", "Under 0,5 % eller avslutade det senaste året", table("holder-closed-" + key, [
+        { key: "s", label: "Aktie", align: "l", cls: "name", cell: function (r) { return shortStockCell(r.isin); } },
+        { key: "d", label: "Stängd", cls: "muted", cell: function (r) { return r.date; } }
+      ], closedList.sort(function (a, b) { return a.date < b.date ? 1 : -1; }), { static: true, empty: "Inga stängda positioner." })) +
+      block("Alla ändringar", "Senaste året", table("holder-hist-" + key, [
+        { key: "d", label: "Datum", align: "l", cls: "muted", cell: function (r) { return r.date; } },
+        { key: "s", label: "Aktie", align: "l", cls: "name", cell: function (r) { return shortStockCell(r.isin); } },
+        { key: "p", label: "Ny position", cell: function (r) { return r.pct > 0 ? nf2.format(r.pct) + " %" : '<span class="muted">under 0,5 %</span>'; } }
+      ], hist, { static: true, limit: 100, empty: "Inga ändringar." })) + "</div>";
+    return html;
   }
 
   // ---------- Kvartalsrapport ----------
@@ -1758,6 +1878,7 @@
       case "uppkop": html = viewOffers(r.arg); break;
       case "rapport": html = viewReport(); break;
       case "blankning": html = viewShorts(); break;
+      case "blankare": html = r.arg ? viewHolder(r.arg) : viewHolders(); break;
       case "om": html = viewAbout(); break;
       case "kontakt": html = viewContact(); break;
       default: html = viewOverview();
@@ -1766,7 +1887,7 @@
     if (r.page === "aktier") renderStockTable();
     if (r.page === "fonder") renderFundTable();
     drawCharts();
-    var navKey = { aktie: "aktier", fond: "fonder" }[r.page] || r.page;
+    var navKey = { aktie: "aktier", fond: "fonder", blankare: "blankning" }[r.page] || r.page;
     document.querySelectorAll("[data-nav]").forEach(function (a) {
       if (a.getAttribute("data-nav") === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });

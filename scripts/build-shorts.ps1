@@ -148,6 +148,15 @@ foreach ($isin in $events.Keys) {
   if ($last -gt 0 -or $points.Count -gt 1) { $series.Add((J $isin) + ":[" + ($points -join ",") + "]") }
 }
 
+# Alla ändringar senaste året, för blankarnas egna sidor (egen fil som bara laddas där)
+$d365 = $today.AddDays(-365).ToString("yyyy-MM-dd")
+$yearRows = @(@($history) + @($current) | Where-Object { $_[4].Substring(0, 10) -ge $d365 } | Sort-Object { $_[4] } -Descending |
+  ForEach-Object { "[" + (J $_[4].Substring(0, 10)) + "," + (J $_[0]) + "," + (J $_[2]) + "," + $(if ($_[3] -match '^<') { "0" } else { (Pct $_[3]).ToString("0.##", $Inv) }) + "]" } |
+  Select-Object -Unique)
+$histFile = Join-Path (Split-Path $OutFile -Parent) "shorts-history.json"
+[System.IO.File]::WriteAllText((Join-Path (Get-Location) $histFile), ('{"from":' + (J $d365) + ',"rows":[' + ($yearRows -join ",") + "]}"), (New-Object System.Text.UTF8Encoding $false))
+Write-Host ("  {0} ändringar senaste året" -f $yearRows.Count)
+
 # Senaste ändringar (30 dagar)
 $recent = @(@($history) + @($current) | Where-Object { $_[4].Substring(0, 10) -ge $d30 } | Sort-Object { $_[4] } -Descending |
   ForEach-Object { "[" + (J $_[4].Substring(0, 10)) + "," + (J $_[0]) + "," + (J $_[2]) + "," + $(if ($_[3] -match '^<') { "0" } else { (Pct $_[3]).ToString("0.##", $Inv) }) + "]" } |

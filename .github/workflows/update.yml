@@ -84,7 +84,10 @@ jobs:
 
       # Unik version i länkarna till CSS/JS så att webbläsare hämtar nya filer direkt
       - name: Sätt versionsnummer på filerna
-        run: sed -i "s/__VERSION__/$(git rev-parse --short HEAD)/g" site/index.html
+        run: |
+          v=$(git rev-parse --short HEAD)
+          sed -i "s/__VERSION__/$v/g" site/index.html site/assets/app.js
+          echo "$v" > site/version.txt
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

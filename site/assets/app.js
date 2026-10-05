@@ -19,6 +19,20 @@
 
   var CONTACT = ["axelsfondfloden", "gmail.com"].join("@");
 
+  // Versionen sätts vid publicering. Om webbläsaren har en äldre sparad kopia av sajten
+  // laddas sidan om en gång med den nya versionen i adressen, så att allt hämtas på nytt.
+  var APP_VERSION = "__VERSION__";
+  (function checkVersion() {
+    if (APP_VERSION.indexOf("__") === 0) return; // lokal utveckling
+    fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.ok ? r.text() : ""; }).then(function (v) {
+      v = (v || "").trim();
+      if (!v || v === APP_VERSION) return;
+      var key = "ff-reloaded-" + v;
+      try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, "1"); } catch (e) { /* ingen lagring */ }
+      location.replace(location.pathname + "?v=" + encodeURIComponent(v) + location.hash);
+    }).catch(function () {});
+  })();
+
   // Användarnamn hos Buttondown för nyhetsbrevet. Tomt = prenumerationsformuläret visas inte.
   var NEWSLETTER = "";
 

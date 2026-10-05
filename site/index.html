@@ -23,6 +23,8 @@
         <a href="#/" data-nav="oversikt">Översikt</a>
         <a href="#/aktier" data-nav="aktier">Aktier</a>
         <a href="#/fonder" data-nav="fonder">Fonder</a>
+        <a href="#/forvaltare" data-nav="forvaltare">Förvaltare</a>
+        <a href="#/avgifter" data-nav="avgifter">Avgifter</a>
         <a href="#/om" data-nav="om">Om datan</a>
         <a href="#/kontakt" data-nav="kontakt">Kontakt</a>
       </nav>
@@ -36,7 +38,13 @@
   <div class="subbar">
     <div class="container subbar-inner">
       <p id="summary" class="summary">Laddar data…</p>
-      <label class="check"><input type="checkbox" id="excludeIndex"> Exkludera indexfonder</label>
+      <div class="subbar-controls">
+        <div class="seg" id="marketSwitch" role="group" aria-label="Marknad">
+          <button type="button" class="seg-btn" data-market="se" aria-pressed="true">Sverige</button>
+          <button type="button" class="seg-btn" data-market="world" aria-pressed="false">Utland</button>
+        </div>
+        <label class="check"><input type="checkbox" id="excludeIndex"> Exkludera indexfonder</label>
+      </div>
     </div>
   </div>
 
@@ -48,6 +56,7 @@
     <span>Inte investeringsrådgivning.</span>
   </footer>
 
+  <script src="assets/charts.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>

@@ -25,8 +25,16 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
+      # FI:s zip-filer sparas mellan körningar så att bara nya kvartal laddas ner
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: fi-zips-${{ github.run_id }}
+          restore-keys: fi-zips-
 
       - name: Hämta fondinnehav från FI
         shell: pwsh

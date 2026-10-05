@@ -1,0 +1,247 @@
+// Fondflöden – små SVG-diagram utan beroenden.
+// Färger kommer från CSS-klasser (c-pos, c-neg, c-line …) så att diagrammen följer ljust/mörkt tema.
+(function () {
+  "use strict";
+
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var nf0 = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 });
+  var nf1 = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+
+  function fmtTick(v) {
+    var a = Math.abs(v);
+    var s = a >= 10 || v === 0 ? nf0.format(v) : nf1.format(v);
+    return s.replace(/^-/, "−");
+  }
+
+  // Jämna skalsteg (1, 2, 2,5, 5 × 10^n)
+  function niceTicks(min, max, count) {
+    if (min === max) { max = min + 1; }
+    var span = max - min;
+    var raw = span / Math.max(1, count);
+    var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    var steps = [1, 2, 2.5, 5, 10];
+    var step = mag;
+    for (var i = 0; i < steps.length; i++) { if (steps[i] * mag >= raw) { step = steps[i] * mag; break; } }
+    var lo = Math.floor(min / step) * step;
+    var hi = Math.ceil(max / step) * step;
+    var ticks = [];
+    for (var v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v / step) * step);
+    return { min: lo, max: hi, ticks: ticks };
+  }
+
+  function el(name, attrs, parent) {
+    var n = document.createElementNS(SVGNS, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  function text(parent, x, y, str, cls, anchor) {
+    var t = el("text", { x: x, y: y, "class": cls || "c-axis", "text-anchor": anchor || "start" }, parent);
+    t.textContent = str;
+    return t;
+  }
+
+  function setup(container, height) {
+    container.innerHTML = "";
+    container.style.position = "relative";
+    var w = Math.max(240, container.clientWidth);
+    var svg = el("svg", { width: w, height: height, viewBox: "0 0 " + w + " " + height, role: "img" }, null);
+    container.appendChild(svg);
+    var tip = document.createElement("div");
+    tip.className = "chart-tip";
+    tip.hidden = true;
+    container.appendChild(tip);
+    return { svg: svg, w: w, h: height, tip: tip };
+  }
+
+  function showTip(ctx, html, x, y) {
+    var tip = ctx.tip;
+    tip.innerHTML = html;
+    tip.hidden = false;
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var left = x + 12;
+    if (left + tw > ctx.w) left = x - tw - 12;
+    if (left < 0) left = 0;
+    var top = Math.max(0, Math.min(y - th / 2, ctx.h - th));
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  }
+
+  function hideTip(ctx) { ctx.tip.hidden = true; }
+
+  // Stapel med 4px rundad ände bort från nollinjen, rak vid nollinjen
+  function barPath(x, y0, y1, w) {
+    var h = Math.abs(y1 - y0);
+    var r = Math.min(3, h / 2, w / 2);
+    if (h < 0.5) return "";
+    if (y1 < y0) {
+      return "M" + x + "," + y0 + "V" + (y1 + r) + "Q" + x + "," + y1 + " " + (x + r) + "," + y1 +
+        "H" + (x + w - r) + "Q" + (x + w) + "," + y1 + " " + (x + w) + "," + (y1 + r) + "V" + y0 + "Z";
+    }
+    return "M" + x + "," + y0 + "V" + (y1 - r) + "Q" + x + "," + y1 + " " + (x + r) + "," + y1 +
+      "H" + (x + w - r) + "Q" + (x + w) + "," + y1 + " " + (x + w) + "," + (y1 - r) + "V" + y0 + "Z";
+  }
+
+  // x-etiketter: årtal vid första kvartalet varje år
+  function yearLabels(g, points, xAt, y, w) {
+    var every = w < 420 ? 2 : 1, n = 0;
+    points.forEach(function (p, i) {
+      if (p.q && p.q.slice(5) === "1") {
+        if (n++ % every === 0) text(g, xAt(i), y, p.q.slice(0, 4), "c-axis", "middle");
+      }
+    });
+  }
+
+  function grid(ctx, m, scale, y) {
+    var g = el("g", {}, ctx.svg);
+    scale.ticks.forEach(function (t) {
+      var yy = Math.round(y(t)) + 0.5;
+      el("line", { x1: m.l, x2: ctx.w - m.r, y1: yy, y2: yy, "class": t === 0 ? "c-zero" : "c-grid" }, g);
+      text(g, m.l - 8, yy + 4, fmtTick(t), "c-axis", "end");
+    });
+    return g;
+  }
+
+  // Kolumner som kan vara positiva eller negativa (nettoköp per kvartal)
+  function columns(container, points, opts) {
+    opts = opts || {};
+    var ctx = setup(container, opts.height || 220);
+    var m = { t: 10, r: 8, b: 26, l: 52 };
+    var vals = points.map(function (p) { return p.value || 0; });
+    var scale = niceTicks(Math.min(0, Math.min.apply(null, vals)), Math.max(0, Math.max.apply(null, vals)), 4);
+    var ih = ctx.h - m.t - m.b, iw = ctx.w - m.l - m.r;
+    var y = function (v) { return m.t + (scale.max - v) / (scale.max - scale.min) * ih; };
+    var band = iw / points.length;
+    var bw = Math.max(2, Math.min(24, band - 2));
+    var xAt = function (i) { return m.l + band * i + band / 2; };
+
+    grid(ctx, m, scale, y);
+    var hl = el("rect", { x: 0, y: m.t, width: band, height: ih, "class": "c-hover", visibility: "hidden" }, ctx.svg);
+    var g = el("g", {}, ctx.svg);
+    points.forEach(function (p, i) {
+      if (p.value == null) return;
+      var d = barPath(xAt(i) - bw / 2, y(0), y(p.value), bw);
+      if (d) el("path", { d: d, "class": (p.value >= 0 ? "c-pos" : "c-neg") + (p.highlight ? " c-strong" : "") }, g);
+    });
+    // nollinjen ovanpå staplarna
+    var z = Math.round(y(0)) + 0.5;
+    el("line", { x1: m.l, x2: ctx.w - m.r, y1: z, y2: z, "class": "c-zero" }, ctx.svg);
+    yearLabels(el("g", {}, ctx.svg), points, xAt, ctx.h - 6, ctx.w);
+
+    var hit = el("rect", { x: m.l, y: 0, width: iw, height: ctx.h, fill: "transparent" }, ctx.svg);
+    hit.addEventListener("pointermove", function (e) {
+      var r = ctx.svg.getBoundingClientRect();
+      var i = Math.max(0, Math.min(points.length - 1, Math.floor((e.clientX - r.left - m.l) / band)));
+      hl.setAttribute("x", m.l + band * i);
+      hl.setAttribute("visibility", "visible");
+      showTip(ctx, opts.tip(points[i]), xAt(i), y(points[i].value || 0));
+    });
+    hit.addEventListener("pointerleave", function () { hl.setAttribute("visibility", "hidden"); hideTip(ctx); });
+  }
+
+  // Linje med tunn yta under (antal fonder som äger)
+  function line(container, points, opts) {
+    opts = opts || {};
+    var ctx = setup(container, opts.height || 220);
+    var m = { t: 14, r: 40, b: 26, l: 52 };
+    var vals = points.map(function (p) { return p.value; }).filter(function (v) { return v != null; });
+    var scale = niceTicks(0, Math.max.apply(null, vals.concat([1])), 4);
+    var ih = ctx.h - m.t - m.b, iw = ctx.w - m.l - m.r;
+    var y = function (v) { return m.t + (scale.max - v) / (scale.max - scale.min) * ih; };
+    var step = points.length > 1 ? iw / (points.length - 1) : 0;
+    var xAt = function (i) { return m.l + step * i; };
+
+    grid(ctx, m, scale, y);
+    var d = "", a = "", started = false, last = -1;
+    points.forEach(function (p, i) {
+      if (p.value == null) { started = false; return; }
+      d += (started ? "L" : "M") + xAt(i).toFixed(1) + "," + y(p.value).toFixed(1);
+      started = true; last = i;
+    });
+    var first = -1;
+    points.forEach(function (p, i) { if (first < 0 && p.value != null) first = i; });
+    if (first >= 0) {
+      a = d + "L" + xAt(last).toFixed(1) + "," + y(0) + "L" + xAt(first).toFixed(1) + "," + y(0) + "Z";
+      el("path", { d: a, "class": "c-area" }, ctx.svg);
+      el("path", { d: d, "class": "c-line" }, ctx.svg);
+      var lp = points[last];
+      el("circle", { cx: xAt(last), cy: y(lp.value), r: 4.5, "class": "c-dot" }, ctx.svg);
+      text(ctx.svg, xAt(last) + 8, y(lp.value) + 4, opts.format ? opts.format(lp.value) : fmtTick(lp.value), "c-label");
+    }
+    yearLabels(el("g", {}, ctx.svg), points, xAt, ctx.h - 6, ctx.w);
+
+    var cross = el("line", { y1: m.t, y2: ctx.h - m.b, "class": "c-cross", visibility: "hidden" }, ctx.svg);
+    var dot = el("circle", { r: 4.5, "class": "c-dot", visibility: "hidden" }, ctx.svg);
+    var hit = el("rect", { x: m.l - step / 2, y: 0, width: iw + step, height: ctx.h, fill: "transparent" }, ctx.svg);
+    hit.addEventListener("pointermove", function (e) {
+      var r = ctx.svg.getBoundingClientRect();
+      var i = Math.max(0, Math.min(points.length - 1, Math.round((e.clientX - r.left - m.l) / (step || 1))));
+      var p = points[i];
+      cross.setAttribute("x1", xAt(i)); cross.setAttribute("x2", xAt(i)); cross.setAttribute("visibility", "visible");
+      if (p.value != null) { dot.setAttribute("cx", xAt(i)); dot.setAttribute("cy", y(p.value)); dot.setAttribute("visibility", "visible"); }
+      else dot.setAttribute("visibility", "hidden");
+      showTip(ctx, opts.tip(p), xAt(i), y(p.value || 0));
+    });
+    hit.addEventListener("pointerleave", function () {
+      cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); hideTip(ctx);
+    });
+  }
+
+  // Punktdiagram: aktiv risk (x) mot avgift (y), med markerad zon
+  function scatter(container, points, opts) {
+    var ctx = setup(container, opts.height || 380);
+    var m = { t: 28, r: 16, b: 42, l: 48 };
+    var xs = niceTicks(0, opts.xMax, 5), ys = niceTicks(0, opts.yMax, 4);
+    var ih = ctx.h - m.t - m.b, iw = ctx.w - m.l - m.r;
+    var x = function (v) { return m.l + Math.min(v, xs.max) / xs.max * iw; };
+    var y = function (v) { return m.t + (ys.max - Math.min(v, ys.max)) / ys.max * ih; };
+
+    // Zonen "låg aktiv risk men hög avgift"
+    el("rect", { x: m.l, y: m.t, width: x(opts.zone.x) - m.l, height: y(opts.zone.y) - m.t, "class": "c-zone" }, ctx.svg);
+    text(ctx.svg, m.l + 8, m.t + 16, opts.zone.label, "c-zone-label");
+
+    var g = el("g", {}, ctx.svg);
+    ys.ticks.forEach(function (t) {
+      var yy = Math.round(y(t)) + 0.5;
+      el("line", { x1: m.l, x2: ctx.w - m.r, y1: yy, y2: yy, "class": t === 0 ? "c-zero" : "c-grid" }, g);
+      text(g, m.l - 8, yy + 4, fmtTick(t) + " %", "c-axis", "end");
+    });
+    xs.ticks.forEach(function (t) {
+      var xx = Math.round(x(t)) + 0.5;
+      if (t > 0) el("line", { x1: xx, x2: xx, y1: m.t, y2: ctx.h - m.b, "class": "c-grid" }, g);
+      text(g, xx, ctx.h - m.b + 16, fmtTick(t), "c-axis", "middle");
+    });
+    text(ctx.svg, m.l + iw / 2, ctx.h - 6, opts.xLabel, "c-axis-title", "middle");
+    text(ctx.svg, m.l - 40, 14, opts.yLabel, "c-axis-title");
+
+    // Rita markerade punkter sist så att de hamnar överst
+    var order = points.slice().sort(function (a, b) { return (a.cat === opts.top) - (b.cat === opts.top); });
+    var dots = el("g", {}, ctx.svg);
+    order.forEach(function (p) {
+      p._x = x(p.x); p._y = y(p.y);
+      el("circle", { cx: p._x.toFixed(1), cy: p._y.toFixed(1), r: p.cat === opts.top ? 5.5 : 4.5, "class": "c-pt c-" + p.cat }, dots);
+    });
+    var ring = el("circle", { r: 9, "class": "c-ring", visibility: "hidden" }, ctx.svg);
+
+    var current = null;
+    var hit = el("rect", { x: 0, y: 0, width: ctx.w, height: ctx.h, fill: "transparent", style: "cursor:default" }, ctx.svg);
+    hit.addEventListener("pointermove", function (e) {
+      var r = ctx.svg.getBoundingClientRect();
+      var px = e.clientX - r.left, py = e.clientY - r.top, best = null, bd = 18 * 18;
+      points.forEach(function (p) {
+        var dd = (p._x - px) * (p._x - px) + (p._y - py) * (p._y - py);
+        if (dd < bd) { bd = dd; best = p; }
+      });
+      current = best;
+      hit.style.cursor = best ? "pointer" : "default";
+      if (!best) { ring.setAttribute("visibility", "hidden"); hideTip(ctx); return; }
+      ring.setAttribute("cx", best._x); ring.setAttribute("cy", best._y); ring.setAttribute("visibility", "visible");
+      showTip(ctx, opts.tip(best), best._x, best._y);
+    });
+    hit.addEventListener("pointerleave", function () { current = null; ring.setAttribute("visibility", "hidden"); hideTip(ctx); });
+    hit.addEventListener("click", function () { if (current && opts.onClick) opts.onClick(current); });
+  }
+
+  window.FFCharts = { columns: columns, line: line, scatter: scatter };
+})();

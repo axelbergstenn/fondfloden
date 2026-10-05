@@ -356,8 +356,23 @@ $tag = @{
 }
 $sitemap = NewList
 
+# Strukturerad data (JSON-LD) som Google läser. $crumbs är namn och adress omväxlande:
+# @("Aktier", "aktier/", "Volvo B", "aktie/volvo-b/"). Startsidan läggs till först.
+function LdScripts($crumbs, $extra) {
+  $lds = @()
+  if ($crumbs) {
+    $items = @('{"@type":"ListItem","position":1,"name":"Fondinsyn","item":' + (J ($BaseUrl + "/")) + "}")
+    for ($i = 0; $i -lt $crumbs.Count; $i += 2) {
+      $items += '{"@type":"ListItem","position":' + ($i / 2 + 2) + ',"name":' + (J $crumbs[$i]) + ',"item":' + (J ($BaseUrl + "/" + $crumbs[$i + 1])) + "}"
+    }
+    $lds += '{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[' + ($items -join ",") + "]}"
+  }
+  if ($extra) { $lds += $extra }
+  return (@($lds | ForEach-Object { '<script type="application/ld+json">' + $_.Replace("</", "<\/") + "</script>" }) -join "`n  ")
+}
+
 # $rel: "aktie/volvo-b/" (sparas som index.html) eller ett filnamn som "404.html"
-function Page($rel, $route, $title, $desc, $image, $content, [switch]$NoIndex) {
+function Page($rel, $route, $title, $desc, $image, $content, $Crumbs, $Ld, [switch]$NoIndex) {
   $url = $BaseUrl + "/" + $(if ($rel.EndsWith("/")) { $rel } else { "" })
   $head = $tag.charset + "`n  <base href=`"/`">" + $(if ($NoIndex) { "`n  <meta name=`"robots`" content=`"noindex`">" } else { "" })
   $t = $template.Replace($tag.charset, $head)
@@ -370,6 +385,8 @@ function Page($rel, $route, $title, $desc, $image, $content, [switch]$NoIndex) {
   $t = $t.Replace($tag.canon, '<link rel="canonical" href="' + (Esc $url) + '">')
   if ($route) { $t = $t.Replace($tag.body, '<body data-route="' + (Esc $route) + '">') }
   $t = $t.Replace($tag.main, '<main id="app" class="container" tabindex="-1">' + $content + "</main>")
+  $ldHtml = LdScripts $Crumbs $Ld
+  if ($ldHtml) { $t = $t.Replace("</head>", "  " + $ldHtml + "`n</head>") }
   if ($rel -eq "" -or $rel.EndsWith("/")) { Save ($rel + "index.html") $t } else { Save $rel $t }
   if (-not $NoIndex) { $script:sitemap.Add($url) }
 }
@@ -425,7 +442,7 @@ foreach ($s in $pageStocks) {
   $img = Image "aktie-$($s.slug)" $svg
 
   Page "aktie/$($s.slug)/" "aktie/$($s.isin)" "$($s.name) – vilka fonder äger aktien? | Fondinsyn" `
-    "$fundsText äger $($s.name) för $(BigSek $s.val2) ($asOf). Se vilka fonder som köper och säljer aktien, största ägare och historik sedan 2018." $img $content
+    "$fundsText äger $($s.name) för $(BigSek $s.val2) ($asOf). Se vilka fonder som köper och säljer aktien, största ägare och historik sedan 2018." $img $content -Crumbs @("Aktier", "aktier/", $s.name, "aktie/$($s.slug)/")
 }
 Write-Host "  $($pageStocks.Count) aktiesidor"
 
@@ -471,7 +488,7 @@ foreach ($fi in $infos) {
   $img = Image "fond-$($fi.slug)" $svg
 
   Page "fond/$($fi.slug)/" ("fond/" + [uri]::EscapeDataString($fi.id)) "$($fi.name) – innehav, avgift och affärer | Fondinsyn" `
-    "Vad äger $($fi.name)? Se fondens svenska innehav, vilka aktier den köpt och sålt under $QL, avgift ($fee) och fondförmögenhet ($(BigSek $fi.aum))." $img $content
+    "Vad äger $($fi.name)? Se fondens svenska innehav, vilka aktier den köpt och sålt under $QL, avgift ($fee) och fondförmögenhet ($(BigSek $fi.aum))." $img $content -Crumbs @("Fonder", "fonder/", $fi.co, "fondbolag/$($companies[$fi.co].slug)/", $fi.name, "fond/$($fi.slug)/")
 }
 Write-Host "  $($infos.Count) fondsidor"
 
@@ -511,7 +528,7 @@ foreach ($c in $coList) {
   $img = Image "fondbolag-$($c.slug)" $svg
 
   Page "fondbolag/$($c.slug)/" ("fondbolag/" + [uri]::EscapeDataString($c.name)) "$($c.name) – fonder, avgifter och innehav | Fondinsyn" `
-    "Alla $($cf.Count) fonder från $($c.name) med avgifter, fondförmögenhet och största innehav. Data från Finansinspektionen, $QL." $img $content
+    "Alla $($cf.Count) fonder från $($c.name) med avgifter, fondförmögenhet och största innehav. Data från Finansinspektionen, $QL." $img $content -Crumbs @("Fondbolag", "fondbolag/", $c.name, "fondbolag/$($c.slug)/")
 }
 Write-Host "  $($coList.Count) fondbolagssidor"
 
@@ -525,7 +542,7 @@ $rows = NewList
 foreach ($s in @($pageStocks | Sort-Object val2 -Descending)) {
   $rows.Add(@((A (StockUrl $s) $s.name), (Num0 $s.f2), (Mkr $s.val2), $(if ($null -eq $s.netFlow) { "–" } else { Colored $s.flow (Mkr $s.flow -Sign) })))
 }
-Page "aktier/" "aktier" "Aktier som svenska fonder äger | Fondinsyn" "Alla $($pageStocks.Count) svenska aktier som fonderna äger, med antal fondägare, innehav och nettoköp under $QL." $defaultImg (
+Page "aktier/" "aktier" "Aktier som svenska fonder äger | Fondinsyn" "Alla $($pageStocks.Count) svenska aktier som fonderna äger, med antal fondägare, innehav och nettoköp under $QL." $defaultImg -Crumbs @("Aktier", "aktier/") (
   '<div class="page-head"><h1>Aktier som svenska fonder äger</h1><p class="meta">' + $QL + ", innehav den " + $asOf + "</p></div>" +
   '<p class="lead">Här är alla svenska aktier som ägs av minst en svensk värdepappersfond, sorterade efter hur mycket fonderna äger. Nettoköp är förändringen i antal aktier gånger kursen vid kvartalets slut.</p>' +
   (Table @("Aktie", "Fonder", "Innehav (mkr)", "Nettoköp (mkr)") $rows))
@@ -534,14 +551,14 @@ $rows = NewList
 foreach ($fi in @($infos | Sort-Object { [double]$(if ($_.aum) { $_.aum } else { 0 }) } -Descending)) {
   $rows.Add(@((A (FundUrl $fi.id) $fi.name), (A (CoUrl $fi.co) $fi.co), (BigSek $fi.aum), (FeeText $fi)))
 }
-Page "fonder/" "fonder" "Alla svenska fonder – innehav och avgifter | Fondinsyn" "Alla $($infos.Count) svenska värdepappersfonder med fondbolag, fondförmögenhet och avgift. Se vad varje fond äger och har köpt och sålt." $defaultImg (
+Page "fonder/" "fonder" "Alla svenska fonder – innehav och avgifter | Fondinsyn" "Alla $($infos.Count) svenska värdepappersfonder med fondbolag, fondförmögenhet och avgift. Se vad varje fond äger och har köpt och sålt." $defaultImg -Crumbs @("Fonder", "fonder/") (
   '<div class="page-head"><h1>Fonder</h1><p class="meta">' + $QL + ", innehav den " + $asOf + "</p></div>" +
   '<p class="lead">Alla svenska värdepappersfonder som rapporterar sina innehav till Finansinspektionen, sorterade efter fondförmögenhet.</p>' +
   (Table @("Fond", "Fondbolag", "Förmögenhet", "Avgift") $rows))
 
 $rows = NewList
 foreach ($c in @($coList | Sort-Object aum -Descending)) { $rows.Add(@((A (CoUrl $c.name) $c.name), (Num0 $c.funds.Count), (BigSek $c.aum), (CoFee $c))) }
-Page "fondbolag/" "fondbolag" "Fondbolag – fonder, avgifter och innehav | Fondinsyn" "Alla $($coList.Count) fondbolag med svenska värdepappersfonder, med antal fonder, fondförmögenhet och snittavgift." $defaultImg (
+Page "fondbolag/" "fondbolag" "Fondbolag – fonder, avgifter och innehav | Fondinsyn" "Alla $($coList.Count) fondbolag med svenska värdepappersfonder, med antal fonder, fondförmögenhet och snittavgift." $defaultImg -Crumbs @("Fondbolag", "fondbolag/") (
   '<div class="page-head"><h1>Fondbolag</h1><p class="meta">' + $QL + "</p></div>" +
   '<p class="lead">Fondbolagen bakom de svenska värdepappersfonderna. Snittavgiften är viktad efter fondernas storlek.</p>' +
   (Table @("Fondbolag", "Fonder", "Förmögenhet", "Snittavgift") $rows))
@@ -558,9 +575,25 @@ if ($WriteHome) {
   $homeContent = $intro + '<div class="grid-2 section-gap">' + (Block "Störst nettoköp $QL" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsB) "") +
     (Block "Störst nettosälj $QL" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsS) "") + "</div>" +
     '<p class="desc section-gap"><a href="/aktier/">Alla aktier</a> · <a href="/fonder/">Alla fonder</a> · <a href="/fondbolag/">Alla fondbolag</a></p>'
+  # Webbplatsen och datan som dataset (syns i Google Dataset Search)
+  $first = if ($hist) { [string]$hist.quarters[0] } else { $Q }
+  $qEnd = @{ "1" = "03-31"; "2" = "06-30"; "3" = "09-30"; "4" = "12-31" }
+  $homeLd = @(
+    ('{"@context":"https://schema.org","@type":"WebSite","name":"Fondinsyn","url":' + (J ($BaseUrl + "/")) + ',"inLanguage":"sv-SE"}'),
+    ('{"@context":"https://schema.org","@type":"Dataset","name":"Svenska fonders aktieinnehav per kvartal","description":' +
+      (J ("Vilka aktier svenska värdepappersfonder äger, köper och säljer, kvartal för kvartal sedan " + $first.Substring(0, 4) +
+        ". Bygger på fondinnehaven som fondbolagen rapporterar till Finansinspektionen, med avgifter, aktiv risk och förändringar per aktie, fond och fondbolag.")) +
+      ',"url":' + (J ($BaseUrl + "/")) + ',"inLanguage":"sv","isAccessibleForFree":true,"spatialCoverage":"Sverige"' +
+      ',"keywords":["fonder","fondinnehav","aktier","fondbolag","avgifter","Finansinspektionen"]' +
+      ',"temporalCoverage":' + (J ($first.Substring(0, 4) + "-" + $qEnd[$first.Substring(5)] + "/" + $qMeta.curr)) +
+      ',"dateModified":' + (J $qMeta.built) +
+      ',"isBasedOn":"https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/"' +
+      ',"creator":{"@type":"Organization","name":"Fondinsyn","url":' + (J ($BaseUrl + "/")) + "}" +
+      ',"distribution":[{"@type":"DataDownload","encodingFormat":"application/json","contentUrl":' + (J "$BaseUrl/data/$Q.json") + "}]}")
+  )
   $homeTitle = [regex]::Match($tag.title, '<title>([^<]*)</title>').Groups[1].Value
   $homeDesc = [regex]::Match($tag.desc, 'content="([^"]*)"').Groups[1].Value
-  Page "" "" ([System.Net.WebUtility]::HtmlDecode($homeTitle)) ([System.Net.WebUtility]::HtmlDecode($homeDesc)) $defaultImg $homeContent
+  Page "" "" ([System.Net.WebUtility]::HtmlDecode($homeTitle)) ([System.Net.WebUtility]::HtmlDecode($homeDesc)) $defaultImg $homeContent -Ld $homeLd
 } else {
   $sitemap.Add($BaseUrl + "/")
 }

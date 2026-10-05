@@ -3,3 +3,14 @@
 site/data/shorts.json
 site/data/shorts-history.json
 site/data/perf.json
+# Byggs av scripts/build-pages.ps1 vid publicering
+site/aktie/
+site/fond/
+site/fondbolag/
+site/aktier/
+site/fonder/
+site/og/
+site/404.html
+site/sitemap.xml
+site/robots.txt
+site/data/pages.json

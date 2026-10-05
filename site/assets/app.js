@@ -88,6 +88,11 @@
   function int(v) { return nf0.format(v || 0); }
   function cls(v) { return v > 0 ? "pos" : v < 0 ? "neg" : ""; }
   function quarterLabel(id) { return id ? "Q" + id.slice(5) + " " + id.slice(0, 4) : ""; }
+  var MONTHS = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
+  function dateText(iso) {
+    var p = String(iso || "").split("-");
+    return p.length === 3 ? parseInt(p[2], 10) + " " + MONTHS[parseInt(p[1], 10) - 1] + " " + p[0] : String(iso || "");
+  }
   function countryName(code) {
     if (!code) return "";
     try { return regionNames ? regionNames.of(code) : code; } catch (e) { return code; }
@@ -429,6 +434,15 @@
 
   // ---------- Översikt ----------
 
+  // Kort förklaring överst på första sidan om vad sajten visar och var datan kommer ifrån
+  function introBlock() {
+    var m = quarterData().meta;
+    return '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
+      "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
+      "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
+      "Siffrorna gäller innehaven den " + dateText(m.curr) + " jämfört med " + dateText(m.prev) + '. <a href="#/om">Om datan och metoden</a></p>';
+  }
+
   function viewOverview() {
     var ds = marketDs();
     if (!ds) return failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar utländska aktier…");
@@ -472,7 +486,7 @@
 
     var reportBanner = state.market === "se" ? '<a class="report-banner" href="#/rapport"><span class="rb-tag">Kvartalsrapport</span><span class="rb-text">' +
       quarterLabel(state.q) + ": vad fonderna köpte och sålde</span><span class=\"rb-arrow\">Läs rapporten →</span></a>" : "";
-    return watchBlock() + reportBanner + highlights +
+    return introBlock() + watchBlock() + reportBanner + highlights +
       '<div class="grid-2 section-gap">' +
       block("Störst nettoköp", "Förändring i antal aktier × kurs vid kvartalsslut. " + termLink("nettokop", "Hur räknas det?"), table("ov-buy", flowCols, buys, st) + '<a class="more" href="#/aktier">Alla aktier →</a>') +
       block("Störst nettosälj", "&nbsp;", table("ov-sell", flowCols, sells, st)) +
@@ -563,7 +577,7 @@
     if (s && s.price) metaParts.push("Kurs " + nf1.format(s.price) + " kr (" + esc(d.meta.curr) + ")");
     if (s && s.split) metaParts.push("Splitjusterad ×" + nf1.format(s.split));
 
-    var html = '<div class="page-head">' + crumbs + '<div class="title-row"><h1>' + esc(name) + "</h1>" + starBtn("stocks", isin) + '</div><p class="meta">' + metaParts.join(" · ") + "</p></div>";
+    var html = '<div class="page-head">' + crumbs + '<div class="title-row"><h1>' + esc(name) + '</h1><div class="actions">' + starBtn("stocks", isin) + shareBtn("aktie", isin) + '</div></div><p class="meta">' + metaParts.join(" · ") + "</p></div>";
 
     if (s) {
       html += '<dl class="figures">' +
@@ -722,7 +736,7 @@
       (cat === "index" && !/index/i.test(f.name) ? ' <span class="label">Index</span>' : "") +
       (cat === "closet" ? ' <span class="label warn">Indexnära</span>' : "") +
       '</h1><div class="actions">' + starBtn("funds", id) +
-      '<a class="btn" href="#/jamfor/' + encodeURIComponent(id) + '">Jämför</a>' +
+      '<a class="btn" href="#/jamfor/' + encodeURIComponent(id) + '">Jämför</a>' + shareBtn("fond", id) +
       (d.fi[id] ? '<button type="button" class="btn" data-pf-add="' + esc(id) + '">' + (inPortfolio(id) ? "I din portfölj ✓" : "+ Min portfölj") + "</button>" : "") +
       '</div></div><p class="meta">' + companyLink(f.co) + (f.bench ? " · Jämförelseindex: " + esc(f.bench) : "") + "</p></div>";
 
@@ -945,6 +959,30 @@
     return '<button type="button" class="star' + (on ? " on" : "") + '" data-watch="' + kind + ":" + esc(id) + '" aria-pressed="' + on + '">' +
       '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l1.9 4 4.4.5-3.3 3 .9 4.3L8 11.1l-3.9 2.2.9-4.3-3.3-3 4.4-.5z"/></svg>' +
       (on ? "Bevakas" : "Bevaka") + "</button>";
+  }
+
+  // Dela-knappen ger den fasta adressen (fondinsyn.se/aktie/volvo-b/) som har egen titel och delningsbild.
+  // data/pages.json kopplar ISIN, fond-id och fondbolag till adresserna och byggs av scripts/build-pages.ps1.
+  var pageMap = null;
+  function shareBtn(kind, key) {
+    if (!pageMap) { pageMap = {}; getJSON("data/pages.json").then(function (p) { pageMap = p; }, function () {}); }
+    return '<button type="button" class="btn" data-share="' + kind + "|" + esc(key) + '">Dela</button>';
+  }
+  function shareUrl(kind, key) {
+    var slug = pageMap && pageMap[kind] && pageMap[kind][key];
+    return slug ? location.origin + "/" + kind + "/" + slug + "/" : location.href;
+  }
+  function share(btn) {
+    var parts = btn.getAttribute("data-share").split("|");
+    var url = shareUrl(parts[0], parts.slice(1).join("|"));
+    var title = document.querySelector("#app h1");
+    if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
+      navigator.share({ title: (title ? title.textContent + " – " : "") + "Fondinsyn", url: url }).catch(function () {});
+      return;
+    }
+    var done = function () { btn.textContent = "Länk kopierad"; setTimeout(function () { btn.textContent = "Dela"; }, 2000); };
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { window.prompt("Kopiera länken", url); });
+    else window.prompt("Kopiera länken", url);
   }
 
   function watchBlock() {
@@ -2051,7 +2089,7 @@
       if (h) shortNote = '<p class="notice">' + esc(c.name) + " blankar också aktier: " + h.positions.length + ' positioner just nu. <a href="' + holderHref(h.name) + '">Se blankningarna</a></p>';
     } else needShorts();
 
-    return '<div class="page-head"><div class="crumbs"><a href="#/fonder">Fonder</a> / <a href="#/fondbolag">Fondbolag</a> / ' + esc(c.name) + "</div><h1>" + esc(c.name) + "</h1>" +
+    return '<div class="page-head"><div class="crumbs"><a href="#/fonder">Fonder</a> / <a href="#/fondbolag">Fondbolag</a> / ' + esc(c.name) + '</div><div class="title-row"><h1>' + esc(c.name) + '</h1><div class="actions">' + shareBtn("fondbolag", c.name) + "</div></div>" +
       '<p class="meta">' + quarterLabel(state.q) + " jämfört med " + quarterLabel(quarterData().meta.prevId) + ". Affärerna avser " + marketWord() + " aktier.</p></div>" +
       '<dl class="figures">' + fig("Fonder", int(c.funds.length)) + fig("Förvaltat kapital", bigSek(c.aum)) +
       fig("Snittavgift", c.fee == null ? "–" : nf2.format(c.fee) + " %", "viktad efter storlek") +
@@ -2159,15 +2197,20 @@
 
   var MARKET_PAGES = { oversikt: 1, aktier: 1, fonder: 1, fondbolag: 1 };
 
+  // Sidorna under /aktie/, /fond/ och /fondbolag/ byggs av scripts/build-pages.ps1 och anger sin vy i
+  // data-route. En adress med # går alltid före.
+  var pageRoute = document.body.getAttribute("data-route") || "";
+  var pageTitle = pageRoute ? document.title : "";
+
   function route() {
-    var parts = location.hash.replace(/^#\/?/, "").split("/");
+    var parts = (location.hash.replace(/^#\/?/, "") || pageRoute).split("/");
     return { page: parts[0] || "oversikt", arg: decodeURIComponent(parts[1] || ""), arg2: decodeURIComponent(parts[2] || "") };
   }
 
   function render() {
     if (!state.q || !quarterData() || !quarterData().se) return;
     var r = route();
-    document.title = "Fondinsyn";
+    document.title = "Fondinsyn – vad köper och säljer svenska fonder?";
     state.charts = [];
     var html;
     switch (r.page) {
@@ -2190,6 +2233,7 @@
       default: html = viewOverview();
     }
     app.innerHTML = html;
+    if (pageTitle && !location.hash) document.title = pageTitle;
     if (r.page === "aktier") renderStockTable();
     if (r.page === "fonder") renderFundTable();
     drawCharts();
@@ -2224,7 +2268,8 @@
     state.q = id;
     store("ff-quarter", id);
     if (state.data[id] && state.data[id].se) { render(); return Promise.resolve(); }
-    app.innerHTML = loadingBlock();
+    // Färdigbyggt innehåll (sökmotorsidorna) ligger kvar tills datan har laddats
+    if (!app.children.length) app.innerHTML = loadingBlock();
     return loadSe(id).then(render);
   }
 
@@ -2269,6 +2314,8 @@
   });
 
   document.addEventListener("click", function (e) {
+    var shareEl = e.target.closest && e.target.closest("[data-share]");
+    if (shareEl) { share(shareEl); return; }
     if (e.target.id === "copyMail") {
       var btn = e.target;
       var done = function () { btn.textContent = "Kopierad"; setTimeout(function () { btn.textContent = "Kopiera"; }, 2000); };

@@ -48,9 +48,13 @@ jobs:
           key: fi-zips-${{ github.run_id }}
           restore-keys: fi-zips-
 
-      # pdftotext läser målbolag, pris och premie ur erbjudandehandlingarna
-      - name: Installera pdftotext
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+      # pdftotext läser målbolag, pris och premie ur erbjudandehandlingarna.
+      # rsvg-convert och typsnittet Inter ritar delningsbilderna.
+      - name: Installera verktyg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils librsvg2-bin
+          sudo apt-get install -y -qq fonts-inter || echo "Inter saknas, bilderna använder DejaVu Sans"
 
       - name: Hämta fondinnehav från FI
         shell: pwsh
@@ -99,6 +103,13 @@ jobs:
           v=$(git rev-parse --short HEAD)
           sed -i "s/__VERSION__/$v/g" site/index.html site/assets/app.js
           echo "$v" > site/version.txt
+
+      # En fast sida per aktie, fond och fondbolag för sökmotorer, delningsbilder, sitemap och robots.txt.
+      # Utgår från site/index.html och körs därför efter versionsnumret.
+      - name: Bygg sidor för sökmotorer och delningsbilder
+        shell: pwsh
+        continue-on-error: true
+        run: ./scripts/build-pages.ps1 -WriteHome
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

@@ -2,7 +2,7 @@
 
 Insyn i svenska fonder: vilka aktier de köper och säljer, vad de kostar, hur lika de är och vilka bolag de ägde när uppköpsbud kom. Allt bygger på [Finansinspektionens öppna data](https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/).
 
-**Sajten:** https://axelbergstenn.github.io/fondfloden/
+**Sajten:** https://axelbergstenn.github.io/fondinsyn/
 
 ## Funktioner
 
@@ -11,6 +11,8 @@ Insyn i svenska fonder: vilka aktier de köper och säljer, vad de kostar, hur l
 - **Fonder** – varje fonds affärer, avgift och aktiva risk.
 - **Förvaltare** – vad Sveriges kända aktiva fonder har köpt och sålt, och var de är överens.
 - **Avgifter** – aktiv risk mot avgift för alla aktiefonder, med indexnära fonder som tar ut höga avgifter.
+- **Kvartalsrapport** – en automatiskt skriven sammanfattning av kvartalet, med prenumeration på nyhetsbrev via Buttondown.
+- **Blankning** – mest blankade aktier, blankarna och förändringar från FI:s blankningsregister, uppdateras dagligen och kopplas till fondernas köp.
 - **Uppköp** – offentliga uppköpserbjudanden från FI:s prospektregister med pris, premie och vilka fonder som ägde bolaget.
 - **Min portfölj, Jämför, Sök och Bevakning** – genomlysning av egna fonder, överlapp mellan fonder, snabbsök och bevakningslista.
 
@@ -27,11 +29,14 @@ site/                       Den statiska sajten (publiceras med GitHub Pages)
   data/2026Q2-world.json    Utländska aktier
   data/history.json         Ägande och nettoköp per aktie för alla kvartal sedan 2018
   data/offers.json          Uppköpserbjudanden (målbolag, pris, premie, ägande fonder)
+  data/shorts.json          Blankning (byggs vid varje körning, sparas inte i git)
 scripts/
   build-data.ps1            Hämtar FI:s zip-filer och bygger site/data
+  build-shorts.ps1          Hämtar blankningsregistret och bygger site/data/shorts.json
+  newsletter.ps1            Skapar utkast till kvartalets nyhetsbrev hos Buttondown
   serve.ps1                 Lokal webbserver för utveckling
 .github/workflows/
-  update.yml                Hämtar ny data varje måndag och publicerar sajten
+  update.yml                Hämtar ny data varje dag och publicerar sajten
 ```
 
 ## Utveckling
@@ -79,3 +84,9 @@ FI:s zip-filer cachas mellan körningar.
 ## Uppköp
 
 Erbjudandehandlingar hämtas från [FI:s prospektregister](https://www.fi.se/sv/vara-register/prospektregistret/). Målbolag, pris och premie läses ur de första sidorna med `pdftotext` (poppler-utils), som installeras i GitHub Actions och finns i Git för Windows. Varje dokument läses en gång; resultatet sparas i `site/data/offers.json`.
+
+## Nyhetsbrev
+
+1. Skapa ett gratiskonto på [Buttondown](https://buttondown.com).
+2. Sätt `NEWSLETTER` i `site/assets/app.js` till ditt Buttondown-användarnamn, så visas prenumerationsrutan.
+3. Lägg in din API-nyckel från Buttondown som repo-hemlighet `BUTTONDOWN_API_KEY` (Settings → Secrets and variables → Actions). Då skapas ett utkast automatiskt när ett nytt kvartal kommer. Utkastet skickas aldrig av sig självt.

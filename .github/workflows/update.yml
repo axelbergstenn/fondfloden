@@ -2,8 +2,8 @@ name: Uppdatera data och publicera
 
 on:
   schedule:
-    # Varje måndag 05:00 UTC
-    - cron: "0 5 * * 1"
+    # Varje dag 05:00 UTC (insynshandel uppdateras dagligen, fonddata kvartalsvis)
+    - cron: "0 5 * * *"
   push:
     branches: [main]
   workflow_dispatch:
@@ -57,6 +57,17 @@ jobs:
         run: |
           $force = "${{ inputs.force }}" -eq "true"
           ./scripts/build-data.ps1 -History 4 -Force:$force
+
+      # Blankning byggs varje gång men sparas inte i repot (den ändras dagligen)
+      - name: Hämta blankning från FI
+        shell: pwsh
+        run: ./scripts/build-shorts.ps1
+
+      - name: Skapa utkast till nyhetsbrev vid nytt kvartal
+        shell: pwsh
+        env:
+          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}
+        run: ./scripts/newsletter.ps1
 
       - name: Spara ny data i repot
         run: |

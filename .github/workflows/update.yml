@@ -27,7 +27,7 @@ jobs:
   # GitHub stänger av schemalagda körningar i publika repon efter 60 dagar utan aktivitet.
   # Att aktivera arbetsflödet på nytt varje vecka nollställer den räknaren.
   keepalive:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Håll det schemalagda arbetsflödet aktivt

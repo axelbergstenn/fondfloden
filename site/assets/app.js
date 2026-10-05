@@ -940,7 +940,7 @@
         var pctMix = Math.round(8 + a * 62);
         var bg = Math.abs(v) < 1 ? "" : ' style="background:color-mix(in srgb, var(' + (v > 0 ? "--bar-pos" : "--bar-neg") + ") " + pctMix + '%, transparent)"';
         return '<td class="' + (n < cols.length - 4 ? "hide-sm" : "") + '"' + bg + ' title="' + esc(s + ", " + quarterLabel(h.quarters[k]) + ": " + bigSek(v * 1e6, true)) + '">' +
-          fixMinus((v > 0 ? "+" : "") + nf1.format(v / 1000)) + "</td>";
+          (Math.abs(v) < 50 ? "0,0" : fixMinus((v > 0 ? "+" : "") + nf1.format(v / 1000))) + "</td>";
       }).join("") + "</tr>";
     }).join("") + "</tbody></table></div>";
 

@@ -1,4 +1,4 @@
-// Fondflöden – små SVG-diagram utan beroenden.
+// Fondinsyn – små SVG-diagram utan beroenden.
 // Färger kommer från CSS-klasser (c-pos, c-neg, c-line …) så att diagrammen följer ljust/mörkt tema.
 (function () {
   "use strict";

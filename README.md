@@ -1,6 +1,6 @@
-# Fondflöden
+# Fondinsyn
 
-Vilka aktier köper och säljer fonderna? Fondflöden jämför svenska fonders innehav kvartal för kvartal, baserat på [Finansinspektionens öppna data om fondinnehav](https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/).
+Insyn i svenska fonder: vilka aktier de köper och säljer, vad de kostar, hur lika de är och vilka bolag de ägde när uppköpsbud kom. Allt bygger på [Finansinspektionens öppna data](https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/).
 
 **Sajten:** https://axelbergstenn.github.io/fondfloden/
 

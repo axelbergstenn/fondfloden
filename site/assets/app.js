@@ -1,4 +1,4 @@
-// Fondflöden – klientlogik.
+// Fondinsyn – klientlogik.
 // Data byggs av scripts/build-data.ps1:
 //   data/index.json            kvartal som finns
 //   data/<kvartal>.json        svenska aktier + nyckeltal för alla fonder
@@ -498,7 +498,7 @@
     var hs = hasHist ? histFor(isin) : null;
     if (!s && !hs) return notFound("Aktien finns inte i " + quarterLabel(state.q) + ".");
     var name = s ? s.name : hs.name;
-    document.title = name + " – Fondflöden";
+    document.title = name + " – Fondinsyn";
     var world = isin.slice(0, 2) !== "SE";
     var crumbs = '<div class="crumbs"><a href="#/aktier" data-market="' + (world ? "world" : "se") + '">' + (world ? "Utländska aktier" : "Aktier") + "</a> / " + esc(name) + "</div>";
     var metaParts = [];
@@ -655,7 +655,7 @@
     var d = quarterData();
     var f = d.fi[id] || d.se.fundById[id];
     if (!f) return notFound("Fonden finns inte i " + quarterLabel(state.q) + ".");
-    document.title = f.name + " – Fondflöden";
+    document.title = f.name + " – Fondinsyn";
     var hasWorld = needWorld();
     var seF = d.se.fundById[id];
     var wF = hasWorld ? d.world.fundById[id] : null;
@@ -713,7 +713,7 @@
   // ---------- Förvaltare ----------
 
   function viewManagers() {
-    document.title = "Kända förvaltare – Fondflöden";
+    document.title = "Kända förvaltare – Fondinsyn";
     var d = quarterData(), ds = d.se;
     var funds = FEATURED.map(function (id) { return { info: d.fi[id], m: ds.fundById[id] }; })
       .filter(function (x) { return x.info && x.m; })
@@ -785,7 +785,7 @@
   var feeFilter = { scope: "all", list: "closet" };
 
   function viewFees() {
-    document.title = "Avgifter – Fondflöden";
+    document.title = "Avgifter – Fondinsyn";
     var d = quarterData(), ds = d.se;
     var funds = fundList().filter(function (f) { return f.ar != null && f.feeMax != null && f.aum >= 100e6 && fundCategory(f) !== "other"; });
     if (feeFilter.scope === "se") {
@@ -1031,7 +1031,7 @@
   }
 
   function viewPortfolio(arg) {
-    document.title = "Min fondportfölj – Fondflöden";
+    document.title = "Min fondportfölj – Fondinsyn";
     var head = '<div class="page-head"><h1>Min fondportfölj</h1><p class="meta lead">Fyll i dina fonder och hur mycket du har i varje. Då ser du vilka aktier du faktiskt äger, ' +
       "vad du betalar i avgifter och om dina fonder äger samma saker. Portföljen sparas bara i din webbläsare.</p></div>";
     if (!needWorld()) return head + (failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar fondernas innehav…"));
@@ -1133,7 +1133,7 @@
   // ---------- Jämför fonder ----------
 
   function viewCompare(idA, idB) {
-    document.title = "Jämför fonder – Fondflöden";
+    document.title = "Jämför fonder – Fondinsyn";
     var head = '<div class="page-head"><h1>Jämför fonder</h1><p class="meta lead">Hur lika är två fonder egentligen? Överlappet visar hur stor del av innehaven som är gemensam.</p></div>';
     if (!needWorld()) return head + (failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar fondernas innehav…"));
     var d = quarterData(), A = d.fi[idA], B = d.fi[idB];
@@ -1322,7 +1322,7 @@
   }
 
   function viewOffers(id) {
-    document.title = "Uppköp – Fondflöden";
+    document.title = "Uppköp – Fondinsyn";
     var head = '<div class="page-head"><h1>Uppköp</h1><p class="meta lead">Offentliga uppköpserbjudanden på Stockholmsbörsen som godkänts av Finansinspektionen, ' +
       "och vilka fonder som ägde bolagen när budet kom.</p></div>";
     if (!needOffers()) return head + (failed("offers") ? errorBlock() : loadingBlock("Laddar uppköp…"));
@@ -1392,7 +1392,7 @@
   function viewOffer(id) {
     var o = state.offers.offers.filter(function (x) { return x.id === id; })[0];
     if (!o) return notFound("Budet finns inte.");
-    document.title = (o.name || "Uppköp") + " – Fondflöden";
+    document.title = (o.name || "Uppköp") + " – Fondinsyn";
     var st = offerStatus(o);
     var cols = [
       { key: "name", label: "Fond", align: "l", cls: "name", cell: function (h) { return nameCell(fundHref(h), h.name, bigSek(h.v) + (h.w != null ? " · " + nf1.format(h.w * 100) + " % av fonden" : "")); } },
@@ -1413,10 +1413,10 @@
   // ---------- Om och kontakt ----------
 
   function viewAbout() {
-    document.title = "Om datan – Fondflöden";
+    document.title = "Om datan – Fondinsyn";
     var m = quarterData().meta;
     return '<div class="page-head"><h1>Om datan</h1></div><div class="prose">' +
-      "<p>Svenska fondbolag rapporterar varje kvartal sina fonders innehav till Finansinspektionen, som publicerar uppgifterna öppet. Fondflöden jämför kvartalen och visar vilka aktier fonderna har köpt och sålt.</p>" +
+      "<p>Svenska fondbolag rapporterar varje kvartal sina fonders innehav till Finansinspektionen, som publicerar uppgifterna öppet. Fondinsyn jämför kvartalen och visar vilka aktier fonderna har köpt och sålt.</p>" +
       "<h2>Så räknas det</h2><ul>" +
       "<li><b>Nettoköp</b> är förändringen i antal aktier multiplicerad med kursen vid det senaste kvartalsslutet. Kursrörelser påverkar alltså inte siffran.</li>" +
       "<li>Förändringar räknas bara för fonder som rapporterat <b>båda</b> kvartalen.</li>" +
@@ -1432,13 +1432,13 @@
   }
 
   function viewContact() {
-    document.title = "Kontakt – Fondflöden";
+    document.title = "Kontakt – Fondinsyn";
     return '<div class="page-head"><h1>Kontakt</h1></div><div class="prose">' +
       "<p>Har du frågor, hittat ett fel i datan eller idéer på vad som borde finnas på sajten? Hör gärna av dig.</p>" +
       '<div class="contact-card"><span class="contact-label">E-post</span>' +
       '<a class="contact-mail" href="mailto:' + CONTACT + '">' + CONTACT + "</a>" +
       '<button type="button" class="btn" id="copyMail">Kopiera</button></div>' +
-      '<p class="byline">Fondflöden är byggd och drivs av <b>Axel Bergsten</b>.</p></div>';
+      '<p class="byline">Fondinsyn är byggd och drivs av <b>Axel Bergsten</b>.</p></div>';
   }
 
   function selectText(node) {
@@ -1461,7 +1461,7 @@
   function render() {
     if (!state.q || !quarterData() || !quarterData().se) return;
     var r = route();
-    document.title = "Fondflöden";
+    document.title = "Fondinsyn";
     state.charts = [];
     var html;
     switch (r.page) {

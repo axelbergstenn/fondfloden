@@ -3,7 +3,8 @@
 //   data/index.json            kvartal som finns
 //   data/<kvartal>.json        svenska aktier + nyckeltal för alla fonder
 //   data/<kvartal>-world.json  utländska aktier
-//   data/history.json          ägande och nettoköp per aktie sedan 2018
+//   data/history-se.json       ägande och nettoköp per svensk aktie sedan 2018
+//   data/history-world.json    samma för utländska aktier
 (function () {
   "use strict";
 
@@ -52,6 +53,7 @@
     history: null,
     loading: {},
     sorts: {},
+    tables: {},
     charts: []
   };
 
@@ -153,12 +155,20 @@
       return getJSON("data/" + q + "-world.json").then(function (raw) { state.data[q].world = prepare(raw); });
     });
   }
-  function needHistory() {
-    return need("history", function () {
-      return getJSON("data/history.json").then(function (h) {
-        h.qIndex = {};
-        h.quarters.forEach(function (q, i) { h.qIndex[q] = i; });
-        state.history = h;
+  // Historiken ligger i två filer (svenska och utländska aktier). Den del som behövs laddas
+  // och slås ihop med det som redan finns i state.history.
+  function histPart(isin) { return isin && isin.slice(0, 2) !== "SE" ? "world" : "se"; }
+  function needHistory(part) {
+    part = part || (state.market === "world" ? "world" : "se");
+    return need("history-" + part, function () {
+      return getJSON("data/history-" + part + ".json").then(function (h) {
+        if (!state.history) {
+          h.qIndex = {};
+          h.quarters.forEach(function (q, i) { h.qIndex[q] = i; });
+          state.history = h;
+        } else {
+          Object.keys(h.stocks).forEach(function (k) { state.history.stocks[k] = h.stocks[k]; });
+        }
       });
     });
   }
@@ -298,6 +308,7 @@
         });
       }
     }
+    if (opts.csv) state.tables[key] = { cols: cols, rows: rows };
     if (opts.limit) rows = rows.slice(0, opts.limit);
     var head = cols.map(function (c) {
       var thCls = [c.align === "l" ? "l" : "", c.hideSm ? "hide-sm" : ""].join(" ").trim();
@@ -315,7 +326,32 @@
       }).join("") + "</tr>";
     }).join("");
     if (!rows.length) body = '<tr><td class="empty" colspan="' + cols.length + '">' + (opts.empty || "Inga rader.") + "</td></tr>";
-    return '<div class="table-wrap"><table><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+    return '<div class="table-wrap"><table><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>" +
+      (opts.csv && rows.length ? '<button type="button" class="csv-btn" data-csv="' + esc(key) + '">Ladda ner som CSV (Excel)</button>' : "");
+  }
+
+  // Exporterar en tabell som CSV med semikolon och decimalkomma, så att den öppnas rätt i svenska Excel
+  function cellText(html) {
+    var div = document.createElement("div");
+    div.innerHTML = html;
+    div.querySelectorAll(".sub, .show-sm").forEach(function (n) { n.remove(); });
+    var t = div.textContent.replace(/\s+/g, " ").trim().replace(/−/g, "-");
+    // "+5 893" och "1 234,5 %" blir tal som Excel känner igen
+    if (/^[+\-]?[\d\s  ]+(,\d+)?(\s?%)?$/.test(t)) t = t.replace(/[\s  %]/g, "").replace(/^\+/, "");
+    return t;
+  }
+  function downloadCsv(key) {
+    var t = state.tables[key];
+    if (!t) return;
+    var q = function (s) { return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    var lines = [t.cols.map(function (c) { return q(cellText(c.label)); }).join(";")];
+    t.rows.forEach(function (r, n) { lines.push(t.cols.map(function (c) { return q(cellText(c.cell(r, n))); }).join(";")); });
+    var blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "fondinsyn-" + key.replace(/[^a-z0-9-]+/gi, "-") + "-" + state.q + ".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
 
   function bar(value, max, kind) {
@@ -500,7 +536,7 @@
     var world = state.market === "world";
     var nameWithSub = stockCol(function (s) { return (world && s.country ? esc(countryName(s.country)) + " · " : "") + esc(s.sector) + " · " + int(s.f2) + " fonder · " + mkr(s.val2) + " mkr"; });
     var cols = [nameWithSub].concat(world ? [col.country] : [], [col.sector, col.funds, col.dFunds, col.value, col.flow, col.chg]);
-    $("stockTable").innerHTML = table("stocks-" + state.market, cols, rows, { sort: { col: "flow", dir: -1 }, empty: "Inga aktier matchar filtret." });
+    $("stockTable").innerHTML = table("stocks-" + state.market, cols, rows, { csv: true, sort: { col: "flow", dir: -1 }, empty: "Inga aktier matchar filtret." });
     $("stockCount").textContent = int(rows.length) + " aktier";
   }
 
@@ -513,7 +549,7 @@
       if (!needWorld()) return failed("world-" + state.q) ? errorBlock() : loadingBlock();
       s = d.world.byIsin[isin];
     }
-    var hasHist = needHistory();
+    var hasHist = needHistory(histPart(isin));
     var hs = hasHist ? histFor(isin) : null;
     if (!s && !hs) return notFound("Aktien finns inte i " + quarterLabel(state.q) + ".");
     var name = s ? s.name : hs.name;
@@ -550,7 +586,7 @@
 
     html += '<section class="block section-gap"><div class="block-head"><h2>Historik</h2>';
     if (!hasHist) {
-      html += "</div>" + (failed("history") ? errorBlock() : loadingBlock("Laddar historik…")) + "</section>";
+      html += "</div>" + (failed("history-" + histPart(isin)) ? errorBlock() : loadingBlock("Laddar historik…")) + "</section>";
     } else if (!hs) {
       html += '</div><p class="desc">Det finns ingen historik för den här aktien. Små innehav tas inte med.</p></section>';
     } else {
@@ -666,7 +702,7 @@
       { key: "mv", label: (state.market === "se" ? "Sv." : "Utl.") + " aktier (mkr)", cell: function (r) { return mv(r) ? mkr(mv(r)) : "–"; }, value: mv },
       { key: "net", label: "Netto (mkr)", cell: function (r) { var v = net(r); return v == null ? "–" : '<span class="' + cls(v) + '">' + mkr(v, true) + "</span>"; }, value: net }
     ];
-    $("fundTable").innerHTML = table("funds-" + state.market, cols, rows, { sort: { col: "mv", dir: -1 }, empty: "Inga fonder matchar filtret." });
+    $("fundTable").innerHTML = table("funds-" + state.market, cols, rows, { csv: true, sort: { col: "mv", dir: -1 }, empty: "Inga fonder matchar filtret." });
     $("fundCount").textContent = int(rows.length) + " fonder";
   }
 
@@ -698,10 +734,20 @@
         fig(termLink("standardavvikelse", "Standardavvikelse"), pctPlain(fi.sd), "24 månader") +
         fig("Svenska aktier", bigSek(seF ? seF.val : 0)) +
         fig("Utländska aktier", hasWorld ? bigSek(wF ? wF.val : 0) : "…") + "</dl>";
+      var perfHtml = perfBlock(id);
+      var prof = hasWorld ? fundProfile(id) : null;
+      if (prof) {
+        html += '<dl class="figures">' +
+          fig(termLink("aktiv-andel", "Aktiv andel"), prof.active == null ? "–" : pctShare(prof.active),
+            prof.active == null ? (fi.isIndex ? "indexfond" : "kan inte mätas") : "jämfört med " + (prof.region === "se" ? "svenska" : "globala") + " indexfonder") +
+          fig(termLink("koncentration", "Tio största innehaven"), pctShare(prof.top10), "av fondens aktier") +
+          fig("Antal aktier", int(prof.n)) + "</dl>";
+      }
       if (cat === "closet") {
         html += '<p class="notice warn-notice">Fonden har en aktiv risk på ' + pctPlain(fi.ar) + " men tar ut upp till " + nf2.format(fi.feeMax) +
           ' % i avgift. Den följer alltså sitt jämförelseindex ganska nära, men kostar som en aktiv fond. <a href="#/avgifter">Läs mer om avgifter</a></p>';
       }
+      html += perfHtml;
     }
 
     html += fundHoldings(f, seF, "Svenska aktier", d.se, d.meta);
@@ -808,6 +854,7 @@
   function viewFees() {
     document.title = "Avgifter – Fondinsyn";
     var d = quarterData(), ds = d.se;
+    var hasWorld = needWorld(), hasPerf = needPerf();
     var funds = fundList().filter(function (f) { return f.ar != null && f.feeMax != null && f.aum >= 100e6 && fundCategory(f) !== "other"; });
     if (feeFilter.scope === "se") {
       funds = funds.filter(function (f) { var m = ds.fundById[f.id]; return m && m.val / f.aum >= 0.6; });
@@ -832,6 +879,10 @@
       { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return esc(f.co); }, value: function (f) { return f.co; } },
       { key: "fee", label: "Avgift", cell: function (f) { return nf2.format(f.feeMax) + " %"; }, value: function (f) { return f.feeMax; } },
       { key: "ar", label: "Aktiv risk", hideSm: true, cell: function (f) { return pctPlain(f.ar); }, value: function (f) { return f.ar; } },
+      { key: "r5", label: "Avkastning 5 år", hideSm: true, cell: function (f) { var p = hasPerf && perfOf(f.id); return p ? retText(p[3]) : "–"; },
+        value: function (f) { var p = hasPerf && perfOf(f.id); return p ? p[3] : null; } },
+      { key: "as", label: "Aktiv andel", hideSm: true, cell: function (f) { var p = hasWorld && fundProfile(f.id); return p ? pctShare(p.active) : "…"; },
+        value: function (f) { var p = hasWorld && fundProfile(f.id); return p ? p.active : null; } },
       { key: "aum", label: "Förmögenhet (mkr)", hideSm: true, cell: function (f) { return mkr(f.aum); }, value: function (f) { return f.aum; } },
       { key: "cost", label: "Avgifter per år (mkr)", cell: function (f) { return mkr(f.aum * f.feeMax / 100); }, value: function (f) { return f.aum * f.feeMax / 100; } }
     ];
@@ -864,7 +915,7 @@
       }) + "</div></section>" +
       '<section class="block section-gap"><div class="block-head"><h2>' + (feeFilter.list === "closet" ? "Indexnära fonder med hög avgift" : "Alla aktiefonder") + "</h2>" +
       '<div class="seg" role="group" aria-label="Lista">' + seg("list", "closet", "Indexnära", feeFilter.list) + seg("list", "all", "Alla", feeFilter.list) + "</div></div>" +
-      table("fees-" + feeFilter.list, cols, listRows, { sort: { col: "cost", dir: -1 }, empty: "Inga fonder i urvalet." }) + "</section>" +
+      table("fees-" + feeFilter.list, cols, listRows, { csv: true, sort: { col: "cost", dir: -1 }, empty: "Inga fonder i urvalet." }) + "</section>" +
       '<section class="block section-gap prose"><h2>Så ska du läsa det</h2>' +
       "<p><b>Aktiv risk</b> (tracking error) mäter hur mycket fondens avkastning har avvikit från jämförelseindex de senaste 24 månaderna. En indexfond ligger nära 0 %. En vanlig tumregel är att en fond under 3 % i praktiken följer index ganska nära.</p>" +
       "<p><b>Avgift</b> är den högsta fasta förvaltningsavgiften bland fondens andelsklasser, vilket oftast är den som privatpersoner betalar. Prestationsbaserade avgifter ingår inte.</p>" +
@@ -902,7 +953,7 @@
     var d = quarterData();
     var needsWorld = w.stocks.some(function (i) { return i.slice(0, 2) !== "SE"; });
     var hasWorld = !needsWorld || needWorld();
-    var hasHist = state.loading.history === "done";
+    var hasHist = state.loading["history-se"] === "done";
     var qi = hasHist ? state.history.qIndex[state.q] : null;
     var stocks = w.stocks.map(function (isin) { return d.se.byIsin[isin] || (hasWorld && d.world ? d.world.byIsin[isin] : null); }).filter(Boolean);
     var funds = w.funds.map(function (id) { return d.fi[id] || d.se.fundById[id]; }).filter(Boolean);
@@ -1012,6 +1063,58 @@
     pos.forEach(function (o) { w[o.s.isin] = (w[o.s.isin] || 0) + o.v / (tot || 1); s[o.s.isin] = o.s; });
     return { w: w, s: s, n: pos.length };
   }
+
+  // ---------- Aktiv andel och koncentration ----------
+  // Aktiv andel = halva summan av skillnaden i vikt mot ett index, 0 % = som index, 100 % = inget gemensamt.
+  // Som index används indexfondernas sammanlagda innehav (viktat efter storlek), separat för
+  // Sverigefonder och globala fonder.
+
+  function regionOf(id) {
+    var d = quarterData(), se = 0, all = 0;
+    fundPositions(id).forEach(function (o) { all += o.v; if (o.s.isin.slice(0, 2) === "SE") se += o.v; });
+    if (!all) return null;
+    if (se / all >= 0.8) return "se";
+    if (se / all <= 0.2) return "world";
+    return null;
+  }
+
+  function indexProxy(region) {
+    var d = quarterData();
+    d.proxy = d.proxy || {};
+    if (d.proxy[region]) return d.proxy[region];
+    var sum = {}, tot = 0;
+    fundList().forEach(function (f) {
+      if (!f.isIndex || !f.aum || regionOf(f.id) !== region) return;
+      var w = stockWeights(f.id).w;
+      Object.keys(w).forEach(function (k) { sum[k] = (sum[k] || 0) + w[k] * f.aum; });
+      tot += f.aum;
+    });
+    Object.keys(sum).forEach(function (k) { sum[k] /= tot || 1; });
+    return (d.proxy[region] = tot ? sum : null);
+  }
+
+  // Returnerar { active, top10, n, region } eller null om fonden inte går att mäta
+  function fundProfile(id) {
+    var d = quarterData();
+    if (!d.world) return null; // kräver alla innehav
+    d.profiles = d.profiles || {};
+    if (id in d.profiles) return d.profiles[id];
+    var sw = stockWeights(id), ws = Object.keys(sw.w).map(function (k) { return sw.w[k]; }).sort(function (a, b) { return b - a; });
+    if (!ws.length) return (d.profiles[id] = null);
+    var top10 = ws.slice(0, 10).reduce(function (a, b) { return a + b; }, 0);
+    var region = regionOf(id), active = null, fi = d.fi[id];
+    var proxy = region ? indexProxy(region) : null;
+    if (proxy && !(fi && fi.isIndex)) {
+      var keys = {}, diff = 0;
+      Object.keys(sw.w).forEach(function (k) { keys[k] = 1; });
+      Object.keys(proxy).forEach(function (k) { keys[k] = 1; });
+      Object.keys(keys).forEach(function (k) { diff += Math.abs((sw.w[k] || 0) - (proxy[k] || 0)); });
+      active = diff / 2;
+    }
+    return (d.profiles[id] = { active: active, top10: top10, n: sw.n, region: region });
+  }
+
+  function pctShare(v) { return v == null ? "–" : nf0.format(v * 100) + " %"; }
 
   function overlap(idA, idB) {
     var a = stockWeights(idA), b = stockWeights(idB), sum = 0, common = [];
@@ -1193,6 +1296,9 @@
       row("Aktiv risk", function (f) { return pctPlain(f.ar); }) +
       row("Standardavvikelse", function (f) { return pctPlain(f.sd); }) +
       row("Antal aktier", function (f) { return int(f.id === idA ? ov.a.n : ov.b.n); }) +
+      row(termLink("aktiv-andel", "Aktiv andel"), function (f) { var p = fundProfile(f.id); return p ? pctShare(p.active) : "–"; }) +
+      row(termLink("koncentration", "Tio största"), function (f) { var p = fundProfile(f.id); return p ? pctShare(p.top10) : "–"; }) +
+      row(termLink("avkastning", "Avkastning snitt 5 år"), function (f) { var p = needPerf() && perfOf(f.id); return p ? retText(p[3]) : "–"; }) +
       row("Jämförelseindex", function (f) { return esc(f.bench || "–"); }) +
       "</tbody></table></div>" +
       '<section class="block section-gap"><div class="block-head"><h2>Gemensamma innehav</h2><span class="note">Andel av fondernas aktieinnehav</span></div>' +
@@ -1314,6 +1420,29 @@
 
   // ---------- Uppköp ----------
 
+  // ---------- Avkastning (Pensionsmyndigheten) ----------
+
+  function needPerf() {
+    return need("perf", function () {
+      return getJSON("data/perf.json").then(function (d) { state.perf = d; });
+    });
+  }
+  // [i år, förra året, året före, snitt 5 år, avgift i premiepensionen, risk, namn, kategori]
+  function perfOf(id) { return state.perf && state.perf.funds[id] ? state.perf.funds[id] : null; }
+  function retText(v) { return v == null ? "–" : '<span class="' + cls(v) + '">' + (v > 0 ? "+" : "") + fixMinus(nf0.format(v)) + " %</span>"; }
+
+  function perfBlock(id) {
+    if (!needPerf()) return "";
+    var p = perfOf(id), y = state.perf.years;
+    if (!p) return "";
+    return '<section class="block section-gap"><div class="block-head"><h2>' + termLink("avkastning", "Avkastning") + "</h2>" +
+      '<span class="note">Pensionsmyndigheten, beräknad ' + esc(state.perf.calculated) + "</span></div>" +
+      '<dl class="figures">' + fig(esc(y[0]) + " hittills", retText(p[0])) + fig(esc(y[1]), retText(p[1])) + fig(esc(y[2]), retText(p[2])) +
+      fig("Snitt per år, 5 år", retText(p[3])) + fig("Risk", p[5] == null ? "–" : nf0.format(p[5]) + " %", "standardavvikelse, 36 mån") + "</dl>" +
+      '<p class="desc">Avkastning efter fondens avgifter enligt premiepensionens fondtorg (' + esc(p[6]) + "). I premiepensionen är avgiften rabatterad till " +
+      (p[4] == null ? "–" : nf2.format(p[4]) + " %") + ", utanför gäller fondens ordinarie avgift.</p></section>";
+  }
+
   function needOffers() {
     return need("offers", function () {
       return getJSON("data/offers.json").then(function (d) {
@@ -1358,7 +1487,7 @@
     var head = '<div class="page-head"><h1>Uppköp</h1><p class="meta lead">Offentliga uppköpserbjudanden på Stockholmsbörsen som godkänts av Finansinspektionen, ' +
       "och vilka fonder som ägde bolagen när budet kom. " + termLink("budpremie", "Vad är budpremie?") + "</p></div>";
     if (!needOffers()) return head + (failed("offers") ? errorBlock() : loadingBlock("Laddar uppköp…"));
-    needHistory();
+    needHistory("se");
     if (id) return viewOffer(id);
     var offers = state.offers.offers;
     var withTarget = offers.filter(function (o) { return o.name; });
@@ -1413,7 +1542,7 @@
       highlight("Flest uppköpta innehav", top ? top.name : null, top ? fundHref(top) : null, top ? top.n + " bolag som fått bud" : "", top ? "ägda kvartalet före budet" : "") +
       "</div>" +
       '<section class="block section-gap"><div class="block-head"><h2>Alla bud</h2><span class="note">' + int(withTarget.length) + " av " + int(offers.length) + " med identifierat målbolag</span></div>" +
-      table("offers", cols, offers, { sort: { col: "date", dir: -1 } }) + "</section>" +
+      table("offers", cols, offers, { csv: true, sort: { col: "date", dir: -1 } }) + "</section>" +
       '<section class="block section-gap"><div class="block-head"><h2>Fonderna som oftast ägt uppköpta bolag</h2></div>' +
       '<p class="desc">Antal bolag som fonden ägde vid kvartalsslutet före budet. Indexfonder, blandfonder och fonder med aktiv risk under 1,5 % är borträknade.</p>' +
       table("offer-winners", winCols, winners, { static: true, empty: "Inga fonder." }) + "</section>" +
@@ -1541,7 +1670,7 @@
       '<section class="block section-gap"><div class="block-head"><h2>Mest blankade aktier</h2>' +
       '<div class="seg" role="group" aria-label="Urval">' + seg(0.5, "Över 0,5 %") + seg(2, "Över 2 %") + seg(0, "Alla") + "</div></div>" +
       '<p class="desc">Andel av bolagets aktier som är blankade, summan av alla rapporterade positioner över 0,1 %. Kolumnerna till höger visar vad svenska fonder gjorde senaste kvartalet.</p>' +
-      table("shorts-most", mostCols, listed, { sort: { col: "pct", dir: -1 }, limit: 60, empty: "Inga bolag i urvalet." }) + "</section>" +
+      table("shorts-most", mostCols, listed, { csv: true, sort: { col: "pct", dir: -1 }, limit: 60, empty: "Inga bolag i urvalet." }) + "</section>" +
       '<div class="grid-2 section-gap">' +
       block("Fonder köper, blankare satsar mot", "Minst 2 % blankat, men svenska fonder nettoköpte aktien senaste kvartalet.", table("shorts-conflict", [
         { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (a) { return shortCell(a, ""); } },
@@ -1653,7 +1782,7 @@
       highlight("Svenska fondbolag", swedish.length ? swedish.map(function (h) { return h.name; }).join(", ") : "Inga", null, "", swedish.length ? swedish.length + " svenska blankare" : "") +
       "</div>" +
       '<section class="block section-gap"><div class="block-head"><h2>Alla blankare</h2></div>' +
-      table("holders-all", cols, list, { sort: { col: "n", dir: -1 } }) + "</section>";
+      table("holders-all", cols, list, { csv: true, sort: { col: "n", dir: -1 } }) + "</section>";
   }
 
   function viewHolder(key) {
@@ -1733,7 +1862,7 @@
 
   function viewReport() {
     var d = quarterData(), ds = d.se, m = d.meta;
-    var hasHist = needHistory(), hasOffers = needOffers();
+    var hasHist = needHistory("se"), hasOffers = needOffers();
     var cont = ds.stocks.filter(function (s) { return s.price && !s.isNew && !s.isGone; });
     var buys = cont.filter(function (s) { return s.flow > 0; }).sort(function (a, b) { return b.flow - a.flow; });
     var sells = cont.filter(function (s) { return s.flow < 0; }).sort(function (a, b) { return a.flow - b.flow; });
@@ -1873,7 +2002,7 @@
     return '<div class="page-head"><div class="crumbs"><a href="#/fonder">Fonder</a> / Fondbolag</div><h1>Fondbolag</h1><p class="meta lead">' +
       int(list.length) + " fondbolag med svenska värdepappersfonder, " + quarterLabel(state.q) + ". " +
       'Snittavgiften är viktad efter fondernas storlek. <a href="#/ordlista/indexnara">Vad betyder indexnära?</a></p></div>' +
-      table("companies-" + state.market, cols, list, { sort: { col: "aum", dir: -1 } });
+      table("companies-" + state.market, cols, list, { csv: true, sort: { col: "aum", dir: -1 } });
   }
 
   function viewCompany(name) {
@@ -1954,6 +2083,9 @@
     ["budpremie", "Budpremie", "Hur mycket högre budpriset är än aktiekursen innan budet blev känt, oftast jämfört med stängningskursen dagen före."],
     ["split", "Aktiesplit", "När ett bolag delar upp sina aktier i fler, till exempel en gammal aktie blir tio nya. Värdet ändras inte. Fondinsyn justerar för splittar så att de inte ser ut som köp."],
     ["isin", "ISIN", "En internationell kod som identifierar ett värdepapper, till exempel SE0000106270 för H&M B. Svenska aktier börjar med SE."],
+    ["aktiv-andel", "Aktiv andel", "Hur stor del av fondens innehav som skiljer sig från index, mellan 0 % (exakt som index) och 100 % (inga gemensamma aktier). Fondinsyn jämför med indexfondernas sammanlagda innehav, svenska för Sverigefonder och globala för globala fonder. Under cirka 60 % brukar ses som indexnära. Bara fonder med minst 80 % i antingen svenska eller utländska aktier mäts."],
+    ["avkastning", "Avkastning", "Hur mycket fondens värde har ökat eller minskat, efter fondens avgifter. Fondinsyn visar avkastning från Pensionsmyndighetens öppna data för fonderna på premiepensionens fondtorg: per kalenderår och som snitt per år för fem år. Fonder som inte finns på fondtorget saknar avkastning. Historisk avkastning är ingen garanti för framtida avkastning."],
+    ["koncentration", "Koncentration", "Hur stor andel av fondens aktieinnehav som ligger i de tio största innehaven. En hög andel betyder att fonden satsar mycket på några få bolag."],
     ["kvartalsrapport", "Kvartalsrapportering", "Svenska fondbolag rapporterar varje kvartal alla sina fonders innehav till Finansinspektionen. Uppgifterna publiceras ungefär sex veckor efter kvartalets slut."]
   ];
 
@@ -2065,6 +2197,9 @@
     document.querySelectorAll("[data-nav]").forEach(function (a) {
       if (a.getAttribute("data-nav") === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
+    var inMore = !!document.querySelector('#moreMenu [aria-current="page"]');
+    $("moreBtn").classList.toggle("active", inMore);
+    $("moreBtnM").classList.toggle("active", inMore);
     $("marketSwitch").hidden = !MARKET_PAGES[r.page];
     renderSummary();
     if (search.open) runSearch();
@@ -2101,7 +2236,26 @@
 
   // ---------- Händelser ----------
 
+  // Mer-menyn ligger fast positionerad under knappen så att den inte kapas av den scrollbara menyraden på mobil
+  function toggleMore(open) {
+    var menu = $("moreMenu");
+    // På mobil används menyknappen bredvid sökknappen, på dator "Mer" i menyraden
+    var btn = $("moreBtnM").offsetParent ? $("moreBtnM") : $("moreBtn");
+    if (open == null) open = menu.hidden;
+    menu.hidden = !open;
+    $("moreBtn").setAttribute("aria-expanded", String(open));
+    $("moreBtnM").setAttribute("aria-expanded", String(open));
+    if (!open) return;
+    var r = btn.getBoundingClientRect(), w = Math.min(300, window.innerWidth - 16);
+    menu.style.width = w + "px";
+    menu.style.top = Math.round(r.bottom + 6) + "px";
+    menu.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - w - 8))) + "px";
+  }
+  window.addEventListener("resize", function () { toggleMore(false); });
+  window.addEventListener("scroll", function () { if (!$("moreMenu").hidden) toggleMore(false); }, { passive: true });
+
   window.addEventListener("hashchange", function () {
+    toggleMore(false);
     render();
     window.scrollTo(0, 0);
   });
@@ -2122,6 +2276,8 @@
       else selectText(btn.previousElementSibling);
       return;
     }
+    var csv = e.target.closest("[data-csv]");
+    if (csv) { downloadCsv(csv.getAttribute("data-csv")); return; }
     var mk = e.target.closest("[data-market]");
     if (mk) {
       setMarket(mk.getAttribute("data-market"));
@@ -2129,6 +2285,8 @@
       return; // länkar med data-market (brödsmulor) navigerar som vanligt
     }
     // Sök
+    if (e.target.closest("#moreBtn, #moreBtnM")) { toggleMore(); return; }
+    if (!$("moreMenu").hidden && !e.target.closest("#moreMenu")) toggleMore(false);
     if (e.target.closest("#searchBtn")) { openSearch(); return; }
     if (e.target.closest("[data-search-close]")) { closeSearch(); return; }
     var sr = e.target.closest("[data-sr]");
@@ -2233,6 +2391,7 @@
     var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
     if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) { e.preventDefault(); search.open ? closeSearch() : openSearch(); return; }
     if (e.key === "/" && !typing && !search.open) { e.preventDefault(); openSearch(); return; }
+    if (e.key === "Escape" && !$("moreMenu").hidden) { toggleMore(false); ($("moreBtnM").offsetParent ? $("moreBtnM") : $("moreBtn")).focus(); return; }
     if (!search.open) return;
     if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
     else if (e.key === "ArrowDown") { e.preventDefault(); moveSel(1); }
@@ -2279,7 +2438,7 @@
     if (!ids.length) throw new Error("Inga kvartal i index.json");
     var sel = $("quarter");
     sel.innerHTML = idx.quarters.map(function (q) {
-      return '<option value="' + q.id + '">' + quarterLabel(q.id) + " vs " + quarterLabel(q.prevId) + "</option>";
+      return '<option value="' + q.id + '" title="Jämfört med ' + quarterLabel(q.prevId) + '">' + quarterLabel(q.id) + "</option>";
     }).join("");
     sel.disabled = ids.length < 2;
     var saved = store("ff-quarter");

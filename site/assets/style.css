@@ -472,3 +472,29 @@ dt a.term { color: inherit; }
 .faq summary { font-weight: 600; cursor: pointer; }
 .faq p { margin: 8px 0 2px; color: var(--fg-muted); line-height: 1.55; }
 @media (max-width: 640px) { .glossary { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Mer-menyn ---------- */
+.more-btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; color: var(--fg); background: none; border: 0; padding: 6px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.more-btn:hover { background: var(--bg-hover); }
+.more-btn[aria-expanded="true"] { background: var(--bg-hover); }
+.more-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.more-btn.active { font-weight: 600; box-shadow: inset 0 -2px 0 var(--link); border-radius: 0; }
+.more-menu { position: fixed; z-index: 40; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(31, 35, 40, 0.16); padding: 6px; display: flex; flex-direction: column; }
+.more-menu a { display: flex; flex-direction: column; padding: 8px 12px; border-radius: 6px; color: var(--fg); }
+.more-menu a:hover { background: var(--bg-hover); text-decoration: none; }
+.more-menu a b { font-weight: 600; font-size: 14px; }
+.more-menu a span { font-size: 12px; color: var(--fg-muted); }
+.more-menu a[aria-current="page"] { background: var(--bg-subtle); box-shadow: inset 3px 0 0 var(--link); }
+@media (max-width: 640px) { .more-btn { padding: 10px 10px; } }
+
+.csv-btn { margin-top: 8px; font: inherit; font-size: 12px; color: var(--link); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+.csv-btn:hover { text-decoration: underline; }
+.csv-btn::before { content: "↓ "; }
+
+.more-btn-mobile { display: none; align-items: center; justify-content: center; font: inherit; color: var(--fg); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; cursor: pointer; }
+.more-btn-mobile[aria-expanded="true"], .more-btn-mobile.active { border-color: var(--link); color: var(--link); }
+@media (max-width: 640px) {
+  .more-btn-mobile { display: inline-flex; }
+  .mainnav .more-btn { display: none; }
+  .mainnav a { padding: 10px 9px; }
+}

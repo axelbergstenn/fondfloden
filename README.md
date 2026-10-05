@@ -8,7 +8,7 @@ Insyn i svenska fonder: vilka aktier de köper och säljer, vad de kostar, hur l
 
 - **Översikt** – mest köpta och sålda aktier, längsta köp- och säljsviter, nya och avvecklade innehav.
 - **Aktier** – alla svenska eller utländska aktier som fonderna äger, med historik sedan 2018.
-- **Fonder** – varje fonds affärer, avgift och aktiva risk.
+- **Fonder** – varje fonds affärer, avgift, aktiva risk, aktiv andel, koncentration och avkastning (Pensionsmyndigheten). Alla fondbolag med samlade affärer.
 - **Förvaltare** – vad Sveriges kända aktiva fonder har köpt och sålt, och var de är överens.
 - **Avgifter** – aktiv risk mot avgift för alla aktiefonder, med indexnära fonder som tar ut höga avgifter.
 - **Kvartalsrapport** – en automatiskt skriven sammanfattning av kvartalet, med prenumeration på nyhetsbrev via Buttondown.
@@ -27,12 +27,16 @@ site/                       Den statiska sajten (publiceras med GitHub Pages)
   data/index.json           Lista över byggda kvartal
   data/2026Q2.json          Svenska aktier, jämfört med kvartalet innan, + nyckeltal för alla fonder
   data/2026Q2-world.json    Utländska aktier
-  data/history.json         Ägande och nettoköp per aktie för alla kvartal sedan 2018
+  data/history-se.json      Ägande och nettoköp per svensk aktie för alla kvartal sedan 2018
+  data/history-world.json   Samma för utländska aktier
+  data/perf.json            Avkastning från Pensionsmyndigheten (byggs vid varje körning)
   data/offers.json          Uppköpserbjudanden (målbolag, pris, premie, ägande fonder)
   data/shorts.json          Blankning (byggs vid varje körning, sparas inte i git)
 scripts/
   build-data.ps1            Hämtar FI:s zip-filer och bygger site/data
   build-shorts.ps1          Hämtar blankningsregistret och bygger site/data/shorts.json
+  build-perf.ps1            Hämtar avkastning från Pensionsmyndighetens öppna fonddata
+  validate-data.ps1         Stoppar publiceringen om datan ser fel ut
   newsletter.ps1            Skapar utkast till kvartalets nyhetsbrev hos Buttondown
   serve.ps1                 Lokal webbserver för utveckling
 .github/workflows/

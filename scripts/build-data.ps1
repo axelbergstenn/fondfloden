@@ -359,22 +359,28 @@ function Build-History($releases, $file) {
     $prev = $C
   }
 
-  $sb = New-Object System.Text.StringBuilder
-  [void]$sb.Append('{"v":' + $FormatVersion + ',"built":' + (J (Get-Date -Format "yyyy-MM-dd")) + ',"quarters":[' + ((@($ordered | ForEach-Object { J $_.Id })) -join ",") + ']')
-  [void]$sb.Append(',"src":[' + ((@($ordered | ForEach-Object { J $_.File })) -join ",") + '],"stocks":{')
-  $first = $true; $kept = 0
-  foreach ($isin in ($series.Keys | Sort-Object)) {
-    $min = if ($isin.StartsWith("SE")) { $HistoryMinSe } else { $HistoryMinWorld }
-    if ([double]$peak[$isin] -lt $min) { continue }
-    $m = $metaOf[$isin]
-    if (-not ($m -is [hashtable])) { continue }
-    if (-not $first) { [void]$sb.Append(",") }; $first = $false
-    [void]$sb.Append((J $isin) + ":[" + (J $m.name) + "," + (J $m.sector) + "," + (J $m.country) + ",[" + ($series[$isin] -join ",") + "]]")
-    $kept++
+  # Två filer: svenska och utländska aktier, så att sajten bara laddar det den behöver
+  $head = '{"v":' + $FormatVersion + ',"built":' + (J (Get-Date -Format "yyyy-MM-dd")) + ',"quarters":[' + ((@($ordered | ForEach-Object { J $_.Id })) -join ",") + ']' +
+    ',"src":[' + ((@($ordered | ForEach-Object { J $_.File })) -join ",") + '],"stocks":{'
+  foreach ($part in @("se", "world")) {
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append($head)
+    $first = $true; $kept = 0
+    foreach ($isin in ($series.Keys | Sort-Object)) {
+      $isSe = $isin.StartsWith("SE")
+      if ($isSe -ne ($part -eq "se")) { continue }
+      $min = if ($isSe) { $HistoryMinSe } else { $HistoryMinWorld }
+      if ([double]$peak[$isin] -lt $min) { continue }
+      $m = $metaOf[$isin]
+      if (-not ($m -is [hashtable])) { continue }
+      if (-not $first) { [void]$sb.Append(",") }; $first = $false
+      [void]$sb.Append((J $isin) + ":[" + (J $m.name) + "," + (J $m.sector) + "," + (J $m.country) + ",[" + ($series[$isin] -join ",") + "]]")
+      $kept++
+    }
+    [void]$sb.Append("}}")
+    Write-Utf8 (Join-Path $OutDir "history-$part.json") $sb.ToString()
+    Write-Host "  Historik ($part) för $kept aktier."
   }
-  [void]$sb.Append("}}")
-  Write-Utf8 $file $sb.ToString()
-  Write-Host "  Historik för $kept aktier."
 }
 
 # ---------------------------------------------------------------------------
@@ -551,7 +557,7 @@ for ($k = 0; $k -lt [math]::Min($History, $releases.Count - 1); $k++) {
 }
 
 $histReleases = if ($HistoryQuarters -gt 0) { @($releases | Select-Object -First $HistoryQuarters) } else { $releases }
-$histFile = Join-Path $OutDir "history.json"
+$histFile = Join-Path $OutDir "history-se.json"
 $histSrc = '"src":[' + ((@($histReleases | Sort-Object Year, Q | ForEach-Object { J $_.File })) -join ",") + ']'
 $histCurrent = (Test-Path $histFile) -and ([System.IO.File]::ReadAllText($histFile).Contains($histSrc)) -and ([System.IO.File]::ReadAllText($histFile).StartsWith('{"v":' + $FormatVersion + ','))
 if ($Force -or -not $histCurrent) {

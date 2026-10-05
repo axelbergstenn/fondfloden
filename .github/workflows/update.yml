@@ -28,7 +28,7 @@ jobs:
   # Att aktivera arbetsflödet på nytt varje vecka nollställer den räknaren.
   keepalive:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Håll det schemalagda arbetsflödet aktivt
         env:
@@ -36,13 +36,13 @@ jobs:
         run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/update.yml/enable"
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # FI:s zip-filer sparas mellan körningar så att bara nya kvartal laddas ner
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .cache
           key: fi-zips-${{ github.run_id }}
@@ -64,11 +64,22 @@ jobs:
         continue-on-error: true
         run: ./scripts/build-shorts.ps1
 
+      # Avkastning från Pensionsmyndighetens öppna fonddata (uppdateras varje vecka)
+      - name: Hämta avkastning från Pensionsmyndigheten
+        shell: pwsh
+        continue-on-error: true
+        run: ./scripts/build-perf.ps1
+
       - name: Skapa utkast till nyhetsbrev vid nytt kvartal
         shell: pwsh
         env:
           BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}
         run: ./scripts/newsletter.ps1
+
+      # Stoppar körningen om datan ser fel ut, så att ingen trasig data sparas eller publiceras
+      - name: Kontrollera datan
+        shell: pwsh
+        run: ./scripts/validate-data.ps1
 
       - name: Spara ny data i repot
         run: |
@@ -89,17 +100,17 @@ jobs:
           sed -i "s/__VERSION__/$v/g" site/index.html site/assets/app.js
           echo "$v" > site/version.txt
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

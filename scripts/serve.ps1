@@ -1,7 +1,7 @@
 # Enkel lokal webbserver för utveckling: powershell -File scripts/serve.ps1, öppna http://localhost:8765
 param([int]$Port = 8765, [string]$Root = "site")
 $root = (Resolve-Path $Root).Path
-$types = @{ ".html" = "text/html; charset=utf-8"; ".json" = "application/json; charset=utf-8"; ".js" = "text/javascript; charset=utf-8"; ".css" = "text/css; charset=utf-8"; ".svg" = "image/svg+xml" }
+$types = @{ ".html" = "text/html; charset=utf-8"; ".json" = "application/json; charset=utf-8"; ".js" = "text/javascript; charset=utf-8"; ".css" = "text/css; charset=utf-8"; ".svg" = "image/svg+xml"; ".png" = "image/png"; ".webmanifest" = "application/manifest+json"; ".txt" = "text/plain; charset=utf-8" }
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://localhost:$Port/")
 $listener.Start()

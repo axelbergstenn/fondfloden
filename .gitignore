@@ -2,3 +2,4 @@
 .claude/
 site/data/shorts.json
 site/data/shorts-history.json
+site/data/perf.json

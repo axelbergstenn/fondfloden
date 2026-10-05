@@ -1345,7 +1345,8 @@
     var fiNow = quarterData().fi;
     var winners = Object.keys(byFund).map(function (k) { return byFund[k]; }).filter(function (f) {
       var fi = fiNow[f.id];
-      return !INDEX_RE.test(f.name) && !(fi && fi.ar != null && fi.ar < 1.5); // indexnära fonder räknas bort
+      // indexnära fonder och blandfonder räknas bort
+      return !INDEX_RE.test(f.name) && !MIXED_RE.test(f.name) && !(fi && fi.ar != null && fi.ar < 1.5);
     })
       .sort(function (a, b) { return b.n - a.n || b.v - a.v; }).slice(0, 12);
     var top = winners[0];
@@ -1382,7 +1383,7 @@
       '<section class="block section-gap"><div class="block-head"><h2>Alla bud</h2><span class="note">' + int(withTarget.length) + " av " + int(offers.length) + " med identifierat målbolag</span></div>" +
       table("offers", cols, offers, { sort: { col: "date", dir: -1 } }) + "</section>" +
       '<section class="block section-gap"><div class="block-head"><h2>Fonderna som oftast ägt uppköpta bolag</h2></div>' +
-      '<p class="desc">Antal bolag som fonden ägde vid kvartalsslutet före budet. Indexfonder och fonder med aktiv risk under 1,5 % är borträknade.</p>' +
+      '<p class="desc">Antal bolag som fonden ägde vid kvartalsslutet före budet. Indexfonder, blandfonder och fonder med aktiv risk under 1,5 % är borträknade.</p>' +
       table("offer-winners", winCols, winners, { static: true, empty: "Inga fonder." }) + "</section>" +
       '<p class="desc section-gap">Källa: Finansinspektionens prospektregister. Målbolag, pris och premie läses automatiskt ur erbjudandehandlingarna och kan i enstaka fall bli fel. ' +
       "Bud på First North och andra marknader utan krav på godkänd erbjudandehandling saknas.</p>";

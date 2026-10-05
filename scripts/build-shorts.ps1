@@ -39,14 +39,35 @@ function Pct($s) {
   return $null
 }
 
+# Laddar ner en fil från FI. Provar flera adressvarianter; om allt misslyckas används den senast
+# hämtade filen i cachen (FI:s server har ibland svarat 404 till GitHubs servrar).
 function Get-File($name) {
   New-Item -ItemType Directory -Force $CacheDir | Out-Null
   $path = Join-Path $CacheDir "$name.ods"
-  for ($try = 1; ; $try++) {
-    try { Invoke-WebRequest -Uri "https://www.fi.se/BlankningsRegister/$name" -OutFile $path -UseBasicParsing -TimeoutSec 120; break }
-    catch { if ($try -ge 3) { throw }; Start-Sleep -Seconds (10 * $try) }
+  $tmp = "$path.part"
+  $ticks = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $urls = @(
+    "https://www.fi.se/BlankningsRegister/$name",
+    "https://www.fi.se/BlankningsRegister/$name`?_=$ticks",
+    "https://fi.se/BlankningsRegister/$name"
+  )
+  $headers = @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    "Referer" = "https://www.fi.se/sv/vara-register/blankningsregistret/"; "X-Requested-With" = "XMLHttpRequest"; "Accept" = "*/*" }
+  foreach ($u in $urls) {
+    for ($try = 1; $try -le 2; $try++) {
+      try {
+        Invoke-WebRequest -Uri $u -OutFile $tmp -UseBasicParsing -TimeoutSec 120 -Headers $headers
+        $head = [System.IO.File]::ReadAllBytes($tmp) | Select-Object -First 2
+        if ($head.Count -eq 2 -and $head[0] -eq 0x50 -and $head[1] -eq 0x4B) { Move-Item -Force $tmp $path; return (Resolve-Path $path).Path }
+        Write-Host "  $u gav inte en kalkylfil"
+      } catch {
+        Write-Host ("  {0} misslyckades: {1}" -f $u, $_.Exception.Message.Split("`n")[0])
+      }
+      Start-Sleep -Seconds (5 * $try)
+    }
   }
-  return (Resolve-Path $path).Path
+  if (Test-Path $path) { Write-Host "  Använder sparad $name från cachen"; return (Resolve-Path $path).Path }
+  throw "Kunde inte hämta $name från FI"
 }
 
 # Läser alla rader i ett ODS-kalkylblad. Datumceller har värdet i attributet date-value.

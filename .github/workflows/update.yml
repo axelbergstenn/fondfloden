@@ -61,6 +61,7 @@ jobs:
       # Blankning byggs varje gång men sparas inte i repot (den ändras dagligen)
       - name: Hämta blankning från FI
         shell: pwsh
+        continue-on-error: true
         run: ./scripts/build-shorts.ps1
 
       - name: Skapa utkast till nyhetsbrev vid nytt kvartal

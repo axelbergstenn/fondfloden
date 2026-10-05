@@ -1298,7 +1298,8 @@
       "<p>Har du frågor, hittat ett fel i datan eller idéer på vad som borde finnas på sajten? Hör gärna av dig.</p>" +
       '<div class="contact-card"><span class="contact-label">E-post</span>' +
       '<a class="contact-mail" href="mailto:' + CONTACT + '">' + CONTACT + "</a>" +
-      '<button type="button" class="btn" id="copyMail">Kopiera</button></div></div>';
+      '<button type="button" class="btn" id="copyMail">Kopiera</button></div>' +
+      '<p class="byline">Fondflöden är byggd och drivs av <b>Axel Bergsten</b>.</p></div>';
   }
 
   function selectText(node) {

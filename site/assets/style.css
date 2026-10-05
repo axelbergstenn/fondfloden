@@ -421,3 +421,6 @@ table.cmp-table thead th { font-size: 13px; color: var(--fg); }
   table.cmp-table tbody th { width: 110px; }
   .title-row .actions { width: 100%; }
 }
+
+.byline { font-size: 13px; color: var(--fg-muted); margin-top: 8px; }
+.byline b { color: var(--fg); font-weight: 600; }

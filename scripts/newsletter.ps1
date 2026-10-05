@@ -11,7 +11,7 @@
 #>
 param(
   [string]$DataDir = "site/data",
-  [string]$SiteUrl = "https://axelbergstenn.github.io/fondinsyn/"
+  [string]$SiteUrl = "https://fondinsyn.se/"
 )
 
 $ErrorActionPreference = "Stop"

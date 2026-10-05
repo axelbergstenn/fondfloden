@@ -17,12 +17,24 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
+  # GitHub stänger av schemalagda körningar i publika repon efter 60 dagar utan aktivitet.
+  # Att aktivera arbetsflödet på nytt varje vecka nollställer den räknaren.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Håll det schemalagda arbetsflödet aktivt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/update.yml/enable"
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90

@@ -54,6 +54,10 @@ jobs:
             echo "Ingen ny data."
           fi
 
+      # Unik version i länkarna till CSS/JS så att webbläsare hämtar nya filer direkt
+      - name: Sätt versionsnummer på filerna
+        run: sed -i "s/__VERSION__/$(git rev-parse --short HEAD)/g" site/index.html
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

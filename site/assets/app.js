@@ -1366,11 +1366,11 @@
     var targetCell = function (o) {
       var nm = o.name || "Okänt bolag";
       var href = o.isins && o.isins.length ? "#/aktie/" + o.isins[0] : null;
-      var sub = esc(o.bidder) + (o.premium != null ? " · premie " + nf1.format(o.premium) + " %" : "");
+      var sub = o.date + " · " + esc(o.bidder) + (o.premium != null ? " · premie " + nf1.format(o.premium) + " %" : "");
       return (href ? nameCell(href, nm, sub) : '<span class="nm-plain">' + esc(nm) + '</span><span class="sub show-sm">' + sub + "</span>");
     };
     var cols = [
-      { key: "date", label: "Datum", align: "l", cls: "muted", cell: function (o) { return o.date; }, value: function (o) { return o.date; } },
+      { key: "date", label: "Datum", align: "l", cls: "muted", hideSm: true, cell: function (o) { return o.date; }, value: function (o) { return o.date; } },
       { key: "name", label: "Bolag", align: "l", cls: "name", cell: targetCell, value: function (o) { return o.name || ""; } },
       { key: "bidder", label: "Budgivare", align: "l", cls: "muted", hideSm: true, cell: function (o) { return esc(o.bidder); }, value: function (o) { return o.bidder; } },
       { key: "price", label: "Pris", hideSm: true, cell: offerPriceText, value: function (o) { return o.price; } },
@@ -1479,10 +1479,10 @@
     var mostCols = [
       { key: "name", label: "Aktie", align: "l", cls: "name", value: function (a) { return shortName(a); }, cell: function (a) {
         var hs = d.holdersOf[a.isin] || [];
-        return shortCell(a, nf2.format(a.pct) + " % blankat · " + hs.length + " blankare");
+        return shortCell(a, hs.length + " blankare" + (a.ch30 ? " · 30 dagar: " + (a.ch30 > 0 ? "+" : "") + fixMinus(nf2.format(a.ch30)) : ""));
       } },
       { key: "pct", label: "Blankat", cell: function (a) { return '<span class="short-pct">' + nf2.format(a.pct) + " %</span>"; }, value: function (a) { return a.pct; } },
-      { key: "ch30", label: "Δ 30 dagar", cell: function (a) { return pctCell(a.ch30, true); }, value: function (a) { return a.ch30; } },
+      { key: "ch30", label: "Δ 30 dagar", hideSm: true, cell: function (a) { return pctCell(a.ch30, true); }, value: function (a) { return a.ch30; } },
       { key: "n", label: "Blankare ≥0,5 %", hideSm: true, cell: function (a) { return int((d.holdersOf[a.isin] || []).length); }, value: function (a) { return (d.holdersOf[a.isin] || []).length; } },
       { key: "funds", label: "Fonder äger", hideSm: true, cell: function (a) { var s = shortStock(a.isin); return s ? int(s.f2) : "–"; }, value: function (a) { var s = shortStock(a.isin); return s ? s.f2 : null; } },
       { key: "flow", label: "Fondernas nettoköp " + quarterLabel(state.q), hideSm: true, cell: function (a) { var s = shortStock(a.isin); return s && s.netFlow != null ? '<span class="' + cls(s.flow) + '">' + mkr(s.flow, true) + " mkr</span>" : "–"; },
@@ -1507,7 +1507,7 @@
         var s = shortStock(r[2]), nm = s ? s.name : prettyName(d.names[r[2]] || r[2]);
         return (s ? '<a href="' + stockHref(s) + '">' + esc(nm) + "</a>" : '<span class="nm-plain">' + esc(nm) + "</span>") + '<span class="sub">' + holderLink(r[1]) + "</span>";
       } },
-      { key: "p", label: "Ny position", cell: function (r) { return r[3] > 0 ? nf2.format(r[3]) + " %" : '<span class="muted">under 0,5 %</span>'; } }
+      { key: "p", label: "Ny position", cell: function (r) { return r[3] > 0 ? nf2.format(r[3]) + " %" : '<span class="muted" title="Positionen är under 0,5 % och redovisas inte längre med namn">&lt; 0,5 %</span>'; } }
     ];
     var listed = agg.filter(function (a) { return a.pct >= shortFilter.min; });
     var seg = function (v, label) { return '<button type="button" class="seg-btn" data-short-min="' + v + '" aria-pressed="' + (shortFilter.min === v) + '">' + label + "</button>"; };
@@ -1668,7 +1668,7 @@
         { key: "p", label: "Position", cell: function (p) { return '<span class="short-pct">' + nf2.format(p.pct) + " %</span>"; }, value: function (p) { return p.pct; } },
         { key: "tot", label: "Totalt blankat", hideSm: true, cell: function (p) { var a = d.byIsin[p.isin]; return a ? nf2.format(a.pct) + " %" : "–"; } },
         { key: "f", label: "Fondernas nettoköp " + quarterLabel(state.q), hideSm: true, cell: function (p) { var s = shortStock(p.isin); return s && s.netFlow != null ? '<span class="' + cls(s.flow) + '">' + mkr(s.flow, true) + " mkr</span>" : "–"; } },
-        { key: "d", label: "Senast ändrad", cls: "muted", cell: function (p) { return p.date; }, value: function (p) { return p.date; } }
+        { key: "d", label: "Senast ändrad", cls: "muted", hideSm: true, cell: function (p) { return p.date; }, value: function (p) { return p.date; } }
       ], positions, { sort: { col: "p", dir: -1 }, empty: "Inga positioner på minst 0,5 % just nu." }) + "</section>";
 
     if (!hasHist) return html + '<section class="block section-gap">' + loadingBlock("Laddar historik…") + "</section>";
@@ -1680,7 +1680,7 @@
       block("Alla ändringar", "Senaste året", table("holder-hist-" + key, [
         { key: "d", label: "Datum", align: "l", cls: "muted", cell: function (r) { return r.date; } },
         { key: "s", label: "Aktie", align: "l", cls: "name", cell: function (r) { return shortStockCell(r.isin); } },
-        { key: "p", label: "Ny position", cell: function (r) { return r.pct > 0 ? nf2.format(r.pct) + " %" : '<span class="muted">under 0,5 %</span>'; } }
+        { key: "p", label: "Ny position", cell: function (r) { return r.pct > 0 ? nf2.format(r.pct) + " %" : '<span class="muted" title="Positionen är under 0,5 % och redovisas inte längre med namn">&lt; 0,5 %</span>'; } }
       ], hist, { static: true, limit: 100, empty: "Inga ändringar." })) + "</div>";
     return html;
   }

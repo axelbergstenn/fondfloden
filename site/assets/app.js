@@ -498,13 +498,22 @@
 
   // ---------- Översikt ----------
 
-  // Kort förklaring överst på första sidan om vad sajten visar och var datan kommer ifrån
-  function introBlock() {
-    var m = quarterData().meta;
-    return '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
+  // Överst på första sidan: vad sajten visar, var datan kommer ifrån och kvartalets nyckeltal
+  function introBlock(ds) {
+    var m = quarterData().meta, t = ds.totals, net = t.buy + t.sell;
+    var kpi = function (label, value) { return "<div><dt>" + label + "</dt><dd>" + value + "</dd></div>"; };
+    var word = marketWord();
+    return '<section class="hero"><div class="hero-text"><p class="eyebrow">' + quarterLabel(m.id) + " jämfört med " + quarterLabel(m.prevId) + "</p>" +
+      "<h1>Vad köper och säljer fonderna?</h1>" +
+      '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
       "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
       "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
-      "Siffrorna gäller innehaven den " + dateText(m.curr) + " jämfört med " + dateText(m.prev) + '. <a href="#/om">Om datan och metoden</a></p>';
+      "Siffrorna gäller innehaven den " + dateText(m.curr) + " jämfört med " + dateText(m.prev) + '. <a href="#/om">Om datan och metoden</a></p></div>' +
+      '<dl class="hero-kpis">' +
+      kpi("Nettoköp " + word + " aktier", '<span class="' + cls(net) + '">' + bigSek(net, true) + "</span>") +
+      kpi("Fonder som jämförs", int(t.funds)) +
+      kpi(word.charAt(0).toUpperCase() + word.slice(1) + " aktier", int(t.held)) +
+      kpi("Fondernas innehav", bigSek(t.value)) + "</dl></section>";
   }
 
   function viewOverview() {
@@ -550,7 +559,7 @@
 
     var reportBanner = state.market === "se" ? '<a class="report-banner" href="#/rapport"><span class="rb-tag">Kvartalsrapport</span><span class="rb-text">' +
       quarterLabel(state.q) + ": vad fonderna köpte och sålde</span><span class=\"rb-arrow\">Läs rapporten →</span></a>" : "";
-    return introBlock() + watchBlock() + reportBanner + highlights +
+    return introBlock(ds) + watchBlock() + reportBanner + highlights +
       '<div class="grid-2 section-gap">' +
       block("Störst nettoköp", "Förändring i antal aktier × kurs vid kvartalsslut. " + termLink("nettokop", "Hur räknas det?"), table("ov-buy", flowCols, buys, st) + '<a class="more" href="#/aktier">Alla aktier →</a>') +
       block("Störst nettosälj", "&nbsp;", table("ov-sell", flowCols, sells, st)) +
@@ -2296,9 +2305,9 @@
     document.querySelectorAll("[data-nav]").forEach(function (a) {
       if (a.getAttribute("data-nav") === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
-    var inMore = !!document.querySelector('#moreMenu [aria-current="page"]');
-    $("moreBtn").classList.toggle("active", inMore);
-    $("moreBtnM").classList.toggle("active", inMore);
+    // Sidor som bara ligger i Mer-menyn markerar Mer. På dator finns förvaltare m.fl. i menyraden (m-only).
+    $("moreBtn").classList.toggle("active", !!document.querySelector('#moreMenu [aria-current="page"]:not(.m-only)'));
+    $("moreBtnM").classList.toggle("active", !!document.querySelector('#moreMenu [aria-current="page"]'));
     $("marketSwitch").hidden = !MARKET_PAGES[r.page];
     renderSummary();
     if (search.open) runSearch();
@@ -2340,20 +2349,25 @@
   // Mer-menyn ligger fast positionerad under knappen så att den inte kapas av den scrollbara menyraden på mobil
   function toggleMore(open) {
     var menu = $("moreMenu");
-    // På mobil används menyknappen bredvid sökknappen, på dator "Mer" i menyraden
-    var btn = $("moreBtnM").offsetParent ? $("moreBtnM") : $("moreBtn");
+    // På mobil öppnas menyn som en panel nerifrån (från flikraden), på dator under "Mer" i menyraden
+    var sheet = window.matchMedia("(max-width: 760px)").matches;
     if (open == null) open = menu.hidden;
     menu.hidden = !open;
+    menu.classList.toggle("sheet", sheet);
+    $("moreBackdrop").hidden = !(open && sheet);
+    document.body.classList.toggle("sheet-open", open && sheet);
     $("moreBtn").setAttribute("aria-expanded", String(open));
     $("moreBtnM").setAttribute("aria-expanded", String(open));
     if (!open) return;
-    var r = btn.getBoundingClientRect(), w = Math.min(300, window.innerWidth - 16);
+    if (sheet) { menu.removeAttribute("style"); return; }
+    var r = $("moreBtn").getBoundingClientRect(), w = Math.min(320, window.innerWidth - 16);
     menu.style.width = w + "px";
     menu.style.top = Math.round(r.bottom + 6) + "px";
     menu.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - w - 8))) + "px";
   }
-  window.addEventListener("resize", function () { toggleMore(false); });
-  window.addEventListener("scroll", function () { if (!$("moreMenu").hidden) toggleMore(false); }, { passive: true });
+  var moreWidth = window.innerWidth;
+  window.addEventListener("resize", function () { if (window.innerWidth !== moreWidth) { moreWidth = window.innerWidth; toggleMore(false); } });
+  window.addEventListener("scroll", function () { if (!$("moreMenu").hidden && !$("moreMenu").classList.contains("sheet")) toggleMore(false); }, { passive: true });
 
   window.addEventListener("hashchange", function () {
     toggleMore(false);
@@ -2390,7 +2404,7 @@
     // Sök
     if (e.target.closest("#moreBtn, #moreBtnM")) { toggleMore(); return; }
     if (!$("moreMenu").hidden && !e.target.closest("#moreMenu")) toggleMore(false);
-    if (e.target.closest("#searchBtn")) { openSearch(); return; }
+    if (e.target.closest("#searchBtn, #searchBtnT")) { openSearch(); return; }
     if (e.target.closest("[data-search-close]")) { closeSearch(); return; }
     var sr = e.target.closest("[data-sr]");
     if (sr) { pickSel(+sr.getAttribute("data-sr")); return; }

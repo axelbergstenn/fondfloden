@@ -121,16 +121,17 @@ function Fig($label, $value) { return "<div><dt>$label</dt><dd>$value</dd></div>
 function Block($title, $inner, $cls) { return '<section class="block ' + $cls + '"><div class="block-head"><h2>' + $title + "</h2></div>" + $inner + "</section>" }
 
 # Tabell: första kolumnen är vänsterställd (namn), resten högerställda (tal)
+# Kolumn fyra och framåt döljs på mobil (hide-sm), som i appens tabeller
 function Table($heads, $rows) {
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.Append('<div class="table-wrap"><table><thead><tr>')
   for ($i = 0; $i -lt $heads.Count; $i++) {
-    [void]$sb.Append($(if ($i -eq 0) { '<th class="l" scope="col">' } else { '<th scope="col">' }) + $heads[$i] + "</th>")
+    [void]$sb.Append($(if ($i -eq 0) { '<th class="l" scope="col">' } elseif ($i -ge 3) { '<th class="hide-sm" scope="col">' } else { '<th scope="col">' }) + $heads[$i] + "</th>")
   }
   [void]$sb.Append("</tr></thead><tbody>")
   foreach ($r in $rows) {
     [void]$sb.Append("<tr>")
-    for ($i = 0; $i -lt $r.Count; $i++) { [void]$sb.Append($(if ($i -eq 0) { '<td class="l name">' } else { "<td>" }) + $r[$i] + "</td>") }
+    for ($i = 0; $i -lt $r.Count; $i++) { [void]$sb.Append($(if ($i -eq 0) { '<td class="l name">' } elseif ($i -ge 3) { '<td class="hide-sm">' } else { "<td>" }) + $r[$i] + "</td>") }
     [void]$sb.Append("</tr>")
   }
   if ($rows.Count -eq 0) { [void]$sb.Append('<tr><td class="empty" colspan="' + $heads.Count + '">Inga rader.</td></tr>') }
@@ -890,7 +891,7 @@ $reportList = @()
 for ($ri = 0; $ri -lt $reportQs.Count; $ri++) {
   $qid = $reportQs[$ri]
   $qd = if ($qid -eq $Q) { $cur } else { LoadQuarter $qid }
-  $m = $qd.meta; $ql = QLabel $qid; $pl = QLabel ([string]$m.prevId)
+  $m = $qd.meta; $repQL = QLabel $qid; $repPL = QLabel ([string]$m.prevId)
   $cont = @($qd.stocks | Where-Object { $_.price -and $null -ne $_.netFlow })
   $buys = @($cont | Where-Object { $_.flow -gt 0 } | Sort-Object flow -Descending)
   $sells = @($cont | Where-Object { $_.flow -lt 0 } | Sort-Object flow)
@@ -902,14 +903,14 @@ for ($ri = 0; $ri -lt $reportQs.Count; $ri++) {
   $topLinks = { param($list) JoinSv @($list | Select-Object -First 3 | ForEach-Object { (A (IsinUrl $_.isin) $_.name) + " (" + (BigSek $_.flow -Sign) + ")" }) }
 
   $headline = $(if ($sectors.Count) { "Fonderna köpte " + (LcWord $sectors[0]) } else { "Fondernas affärer" }) + $(if ($buys.Count) { " och mest av allt " + $buys[0].name } else { "" })
-  $paras = @("Svenska fonder " + $(if ($net -ge 0) { "nettoköpte" } else { "nettosålde" }) + " svenska aktier för <b>" + (BigSek ([math]::Abs($net))) + "</b> under " + $ql +
-    ". Jämförelsen gäller " + (Num0 $qd.tFunds) + " fonder som rapporterade både " + $pl + " och " + $ql + ".")
+  $paras = @("Svenska fonder " + $(if ($net -ge 0) { "nettoköpte" } else { "nettosålde" }) + " svenska aktier för <b>" + (BigSek ([math]::Abs($net))) + "</b> under " + $repQL +
+    ". Jämförelsen gäller " + (Num0 $qd.tFunds) + " fonder som rapporterade både " + $repPL + " och " + $repQL + ".")
   if ($buys.Count) { $paras += "Mest köpte fonderna " + (& $topLinks $buys) + "." }
   if ($sells.Count) { $paras += "Mest såldes " + (& $topLinks $sells) + "." }
 
   $rowsB = NewList; foreach ($s in @($buys | Select-Object -First 10)) { $rowsB.Add(@((A (IsinUrl $s.isin) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }
   $rowsS = NewList; foreach ($s in @($sells | Select-Object -First 10)) { $rowsS.Add(@((A (IsinUrl $s.isin) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }
-  $content = '<article class="report"><div class="page-head"><div class="crumbs"><a href="/rapport/">Kvartalsrapporter</a> / ' + $ql + " jämfört med " + $pl + "</div>" +
+  $content = '<article class="report"><div class="page-head"><div class="crumbs"><a href="/rapport/">Kvartalsrapporter</a> / ' + $repQL + " jämfört med " + $repPL + "</div>" +
     "<h1>" + (Esc $headline) + "</h1></div>" + '<div class="prose">' + (($paras | ForEach-Object { "<p>$_</p>" }) -join "") + "</div>" +
     '<div class="grid-2 section-gap">' + (Block "Kvartalets största köp" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsB) "") +
     (Block "Kvartalets största sälj" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsS) "") + "</div>"
@@ -943,17 +944,17 @@ for ($ri = 0; $ri -lt $reportQs.Count; $ri++) {
   $content += '<p class="desc section-gap">' + ($nav -join " · ") + " · Källa: Finansinspektionens fondinnehav per kvartal.</p></article>"
 
   $top3 = @($buys | Select-Object -First 3 | ForEach-Object { $_.name })
-  $desc = "Svenska fonder " + $(if ($net -ge 0) { "nettoköpte" } else { "nettosålde" }) + " svenska aktier för " + (BigSek ([math]::Abs($net))) + " under $ql." +
+  $desc = "Svenska fonder " + $(if ($net -ge 0) { "nettoköpte" } else { "nettosålde" }) + " svenska aktier för " + (BigSek ([math]::Abs($net))) + " under $repQL." +
     $(if ($top3.Count) { " Mest köpte de " + (JoinSv $top3) + "." } else { "" }) +
     $(if ($sells.Count) { " Mest sålde de " + (JoinSv @($sells | Select-Object -First 3 | ForEach-Object { $_.name })) + "." } else { "" })
   $stats = @(@("Fonder", (Num0 $qd.tFunds), "#1f2328"), @("Nettoköp", (BigSek $net -Sign), (FlowColor $net)), @("Största köp", $(if ($buys.Count) { BigSek $buys[0].flow -Sign } else { "–" }), "#1a7f37"))
   $rs = ReportSlug $qid
-  $img = Image "rapport-$rs" (OgSvg "Kvartalsrapport $ql" "Svenska fonders köp och sälj" $stats "Mest köpta aktier" $null ($top3 -join " · "))
-  $article = '{"@context":"https://schema.org","@type":"Article","headline":' + (J "Fondernas köp och sälj $ql") + ',"description":' + (J $desc) +
+  $img = Image "rapport-$rs" (OgSvg "Kvartalsrapport $repQL" "Svenska fonders köp och sälj" $stats "Mest köpta aktier" $null ($top3 -join " · "))
+  $article = '{"@context":"https://schema.org","@type":"Article","headline":' + (J "Fondernas köp och sälj $repQL") + ',"description":' + (J $desc) +
     ',"datePublished":' + (J ([string]$m.built)) + ',"dateModified":' + (J ([string]$m.built)) + ',"inLanguage":"sv-SE","image":' + (J "$BaseUrl/$img") +
     ',"author":{"@type":"Organization","name":"Fondinsyn","url":' + (J "$BaseUrl/") + '},"publisher":{"@type":"Organization","name":"Fondinsyn","url":' + (J "$BaseUrl/") + "}}"
-  Page "rapport/$rs/" "rapport/$qid" "Fondernas köp och sälj $ql – kvartalsrapport | Fondinsyn" $desc $img $content -Crumbs @("Kvartalsrapporter", "rapport/", $ql, "rapport/$rs/") -Ld $article
-  $reportList += [pscustomobject]@{ q = $qid; label = $ql; slug = $rs; headline = $headline; desc = $desc }
+  Page "rapport/$rs/" "rapport/$qid" "Fondernas köp och sälj $repQL – kvartalsrapport | Fondinsyn" $desc $img $content -Crumbs @("Kvartalsrapporter", "rapport/", $repQL, "rapport/$rs/") -Ld $article
+  $reportList += [pscustomobject]@{ q = $qid; label = $repQL; slug = $rs; headline = $headline; desc = $desc }
 }
 
 $rows = NewList
@@ -982,10 +983,15 @@ if ($gl) {
 }
 
 # Startsidan och 404
-$intro ='<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
+# Samma topp som introBlock() i app.js, så att sidan inte hoppar när appen tar över
+$intro = '<section class="hero"><div class="hero-text"><p class="eyebrow">' + $QL + " jämfört med " + (QLabel ([string]$qMeta.prevId)) + "</p>" +
+  "<h1>Vad köper och säljer fonderna?</h1>" +
+  '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
   "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
   "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
-  "Siffrorna gäller innehaven den " + $asOf + " jämfört med " + (DateText $qMeta.prev) + '. <a href="/#/om">Om datan och metoden</a></p>'
+  "Siffrorna gäller innehaven den " + $asOf + " jämfört med " + (DateText $qMeta.prev) + '. <a href="/#/om">Om datan och metoden</a></p></div>' +
+  '<dl class="hero-kpis">' + (Fig "Nettoköp svenska aktier" (Colored $tNet (BigSek $tNet -Sign))) + (Fig "Fonder som jämförs" (Num0 $tFunds)) +
+  (Fig "Svenska aktier" (Num0 $tHeld)) + (Fig "Fondernas innehav" (BigSek $tValue)) + "</dl></section>"
 if ($WriteHome) {
   $cont = @($pageStocks | Where-Object { $null -ne $_.netFlow -and $_.price })
   $rowsB = NewList; foreach ($s in @($cont | Where-Object { $_.flow -gt 0 } | Sort-Object flow -Descending | Select-Object -First 15)) { $rowsB.Add(@((A (StockUrl $s) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }

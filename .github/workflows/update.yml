@@ -68,6 +68,12 @@ jobs:
         continue-on-error: true
         run: ./scripts/build-shorts.ps1
 
+      # Insynshandel från FI:s insynsregister (ändras dagligen, sparas inte i repot)
+      - name: Hämta insynshandel från FI
+        shell: pwsh
+        continue-on-error: true
+        run: ./scripts/build-insider.ps1
+
       # Avkastning från Pensionsmyndighetens öppna fonddata (uppdateras varje vecka)
       - name: Hämta avkastning från Pensionsmyndigheten
         shell: pwsh
@@ -84,6 +90,15 @@ jobs:
       - name: Kontrollera datan
         shell: pwsh
         run: ./scripts/validate-data.ps1
+
+      # Bevakningsmejl via Buttondown. Utkast tills variabeln ALERTS_SEND är "true" (Settings > Variables)
+      - name: Skicka bevakningsmejl
+        shell: pwsh
+        continue-on-error: true
+        env:
+          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}
+          ALERTS_SEND: ${{ vars.ALERTS_SEND }}
+        run: ./scripts/alerts.ps1
 
       - name: Spara ny data i repot
         run: |

@@ -276,7 +276,7 @@ function FundUrl($id) { $fi = $infoById[$id]; if ($fi) { return "/fond/$($fi.slu
 function CoUrl($co) { if ($companies.ContainsKey($co)) { return "/fondbolag/$($companies[$co].slug)/" }; return "/#/fondbolag/" + [uri]::EscapeDataString($co) }
 
 # Gamla sidor tas bort så att aktier och fonder som försvunnit inte ligger kvar
-foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist")) {
+foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist", "data/csv", "oppen-data")) {
   $p = Join-Path $Site $dir
   if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
@@ -772,6 +772,8 @@ $gl = $null
 try { $gl = ReadJson "glossary.json" } catch { Write-Host "  ingen ordlista: $($_.Exception.Message)" }
 $perf = $null
 try { $perf = ReadJson "perf.json" } catch { }
+$insider = $null
+try { $insider = ReadJson "insider.json" } catch { }
 
 $eqFunds = @($infos | Where-Object { (Category $_) -ne "other" })
 $activeFunds = @($infos | Where-Object { $c = Category $_; ($c -eq "active" -or $c -eq "closet") -and $_.aum -ge 500e6 })
@@ -860,6 +862,21 @@ function TermExample($slug) {
       $rows = NewList
       foreach ($s in @($pageStocks | Sort-Object f2 -Descending | Select-Object -First 10)) { $rows.Add(@((A (StockUrl $s) $s.name), $s.isin)) }
       return Block "Exempel: de mest ägda aktierna" (Table @("Aktie", "ISIN") $rows) "section-gap"
+    }
+    "insynshandel" {
+      if (-not $insider) { return AppLink "/#/insyn" "Se all insynshandel" }
+      $net = @{}; $name = @{}
+      foreach ($r in $insider.rows) {
+        if ($null -eq $r[11]) { continue }
+        $v = if ($r[7] -eq "Förvärv") { [double]$r[11] } elseif ($r[7] -eq "Avyttring") { - [double]$r[11] } else { 0 }
+        $net[$r[3]] = [double]$net[$r[3]] + $v; $name[$r[3]] = $r[2]
+      }
+      $rows = NewList
+      foreach ($k in @($net.Keys | Where-Object { $net[$_] -gt 0 } | Sort-Object { $net[$_] } -Descending | Select-Object -First 10)) {
+        $link = if ($slugByIsin.ContainsKey($k)) { A (IsinUrl $k) $name[$k] } else { Esc $name[$k] }
+        $rows.Add(@($link, (Colored $net[$k] (BigSek $net[$k] -Sign))))
+      }
+      return (Block "Mest köpt av insiders, $($insider.days) dagar" (Table @("Bolag", "Köp minus sälj") $rows) "section-gap") + (AppLink "/#/insyn" "Se all insynshandel")
     }
     "kvartalsrapport" { return "" } # länkarna till rapporterna läggs till efter att de byggts
     { $_ -in "blankning", "kort-position" } { return AppLink "/#/blankning" "Se vilka aktier som blankas och vilka som blankar dem" }
@@ -1061,6 +1078,88 @@ if ($gl) {
     '<div class="page-head"><h1>Vanliga frågor och ordlista</h1></div><div class="faq">' + $faq + '</div><h2 class="section-title">Ordlista</h2><dl class="glossary">' + $list + "</dl>")
   Write-Host "  $($termPages.Count) sidor i ordlistan"
 }
+
+# ---------- Öppen data: CSV-filer och sidan /oppen-data/ ----------
+# CSV med semikolon och decimalkomma så att filerna öppnas rätt i svenska Excel.
+
+function CsvCell($v) {
+  if ($null -eq $v) { return "" }
+  if ($v -is [double] -or $v -is [single] -or $v -is [decimal] -or $v -is [int] -or $v -is [long]) { return ([double]$v).ToString("0.####", $Inv).Replace(".", ",") }
+  $s = [string]$v
+  if ($s -match '[;"\r\n]') { return '"' + $s.Replace('"', '""') + '"' }
+  return $s
+}
+function SaveCsv($rel, $heads, $rows) {
+  $sb = New-Object System.Text.StringBuilder
+  [void]$sb.Append(($heads -join ";") + "`r`n")
+  foreach ($r in $rows) {
+    $cells = New-Object string[] $r.Count
+    for ($i = 0; $i -lt $r.Count; $i++) { $cells[$i] = CsvCell $r[$i] }
+    [void]$sb.Append([string]::Join(";", $cells) + "`r`n")
+  }
+  $path = Join-Path $Site $rel
+  $dir = Split-Path $path -Parent
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+  [System.IO.File]::WriteAllText($path, $sb.ToString(), (New-Object System.Text.UTF8Encoding $true))
+  return [pscustomobject]@{ rel = $rel; rows = $rows.Count; kb = [math]::Round((Get-Item $path).Length / 1024) }
+}
+
+$csvRows = NewList
+foreach ($s in @($pageStocks | Sort-Object val2 -Descending)) {
+  $csvRows.Add(@($s.isin, $s.name, $s.sector, $s.f2, [math]::Round($s.val2), $(if ($null -ne $s.netFlow) { [math]::Round($s.flow) } else { $null }),
+    $(if ($null -ne $s.chg) { [math]::Round($s.chg * 100, 2) } else { $null }), $s.nNew, $s.nExit))
+}
+$fileStocks = SaveCsv "data/csv/aktier-$Q.csv" @("ISIN", "Aktie", "Sektor", "Fonder som äger", "Fondernas innehav (kr)", "Nettoköp (kr)", "Förändring antal aktier (%)", "Nya fonder", "Avvecklat") $csvRows
+
+$csvRows = NewList
+foreach ($fi in @($infos | Sort-Object { [double]$(if ($_.aum) { $_.aum } else { 0 }) } -Descending)) {
+  $p = if ($profiles.ContainsKey($fi.id)) { $profiles[$fi.id] } else { $null }
+  $csvRows.Add(@($fi.id, $fi.name, $fi.co, $(if ($fi.aum) { [math]::Round($fi.aum) } else { $null }), $fi.feeMin, $fi.feeMax, $fi.ar, $fi.sd,
+    $(if ($fi.m) { [math]::Round($fi.m.val) } else { 0 }), $(if ($p -and $null -ne $p[0]) { [math]::Round($p[0] * 100, 1) } else { $null }),
+    $(if ($p) { [math]::Round($p[1] * 100, 1) } else { $null }), $(if ($p) { $p[2] } else { $null })))
+}
+$fileFunds = SaveCsv "data/csv/fonder-$Q.csv" @("FI-nummer", "Fond", "Fondbolag", "Fondförmögenhet (kr)", "Lägsta avgift (%)", "Högsta avgift (%)", "Aktiv risk (%)", "Standardavvikelse (%)", "Svenska aktier (kr)", "Aktiv andel (%)", "Tio största (%)", "Antal aktier") $csvRows
+
+$csvRows = NewList
+foreach ($f in $funds) {
+  foreach ($r in $f.rows) {
+    if (-not $r.s1 -and -not $r.s2) { continue }
+    $csvRows.Add(@($f.id, $f.name, $f.co, $r.s.isin, $r.s.name, $r.s2, $(if ($f.both) { $r.s1 } else { $null }), [math]::Round($r.v), $(if ($f.both) { [math]::Round($r.d) } else { $null })))
+  }
+}
+$fileHold = SaveCsv "data/csv/innehav-$Q.csv" @("FI-nummer", "Fond", "Fondbolag", "ISIN", "Aktie", "Antal aktier", "Antal förra kvartalet", "Värde (kr)", "Förändring (kr)") $csvRows
+
+$prevQL = QLabel ([string]$qMeta.prevId)
+$srcRows = NewList
+$srcRows.Add(@("Fondernas innehav", (A "https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" "Finansinspektionen, fondinnehav per kvartal"), "Varje kvartal, ungefär tolv veckor efter kvartalsslut", "$QL (innehav $asOf)"))
+$srcRows.Add(@("Avgifter och risk", "Samma kvartalsrapporter till FI", "Varje kvartal", $QL))
+$srcRows.Add(@("Blankning", (A "https://www.fi.se/sv/vara-register/blankningsregistret/" "Finansinspektionen, blankningsregistret"), "Varje dag", "Hämtas varje morgon"))
+$srcRows.Add(@("Insynshandel", (A "https://marknadssok.fi.se/publiceringsklient" "Finansinspektionen, insynsregistret"), "Varje dag, senaste 90 dagarna", "Hämtas varje morgon"))
+$srcRows.Add(@("Uppköpserbjudanden", (A "https://www.fi.se/sv/vara-register/prospektregistret/" "Finansinspektionen, prospektregistret"), "Varje dag", "Hämtas varje morgon"))
+$srcRows.Add(@("Avkastning", (A "https://www.pensionsmyndigheten.se/" "Pensionsmyndighetens fonddata"), "Varje vecka", "Fonder på premiepensionens fondtorg"))
+
+$dlRows = NewList
+foreach ($x in @(@($fileStocks, "Aktier: fondägare, innehav och nettoköp"), @($fileFunds, "Fonder: avgift, risk, aktiv andel och storlek"), @($fileHold, "Alla fonders svenska aktieinnehav, rad för rad"))) {
+  $dlRows.Add(@((A "/$($x[0].rel)" (Split-Path $x[0].rel -Leaf)), (Esc $x[1]), (Num0 $x[0].rows), ((Num0 $x[0].kb) + " kB")))
+}
+$apiRows = NewList
+foreach ($x in @(@("data/index.json", "Vilka kvartal som finns"), @("data/$Q.json", "Svenska aktier, fondernas innehav och nyckeltal för alla fonder"),
+    @("data/$Q-world.json", "Utländska aktier och innehav"), @("data/history-se.json", "Ägande och nettoköp per svensk aktie sedan 2018"),
+    @("data/profiles.json", "Aktiv andel, tio största och antal aktier per fond"), @("data/shorts.json", "Blankning per bolag och innehavare"),
+    @("data/insider.json", "Insynshandel i aktier, senaste 90 dagarna"), @("data/offers.json", "Uppköpserbjudanden och budpremier"), @("data/perf.json", "Avkastning per fond"))) {
+  $apiRows.Add(@(('<code>/' + $x[0] + '</code>'), (Esc $x[1])))
+}
+$odContent = '<div class="page-head"><h1>Data och API</h1></div>' +
+  '<p class="lead">Allt på Fondinsyn bygger på öppna data från Finansinspektionen och Pensionsmyndigheten. Här ser du var datan kommer ifrån, hur ofta den uppdateras, och hur du laddar ner den.</p>' +
+  (Block "Källor och uppdatering" (Table @("Data", "Källa", "Uppdateras", "Senast") $srcRows) "section-gap") +
+  '<p class="desc">Fondinsyn hämtar alla källor automatiskt varje morgon. Köp och sälj räknas som förändringen i antal aktier gånger kursen vid kvartalets slut, jämfört med ' + $prevQL + ". " + (A "/#/om" "Mer om metoden") + "</p>" +
+  (Block "Ladda ner för Excel" (Table @("Fil", "Innehåll", "Rader", "Storlek") $dlRows) "section-gap") +
+  '<p class="desc">CSV med semikolon och decimalkomma, ' + $QL + ". Öppnas direkt i svenska Excel och Google Kalkylark.</p>" +
+  (Block "JSON för utvecklare" (Table @("Adress", "Innehåll") $apiRows) "section-gap") +
+  '<p class="desc">Filerna ligger på https://fondinsyn.se och kan hämtas fritt utan nyckel, även från andra webbplatser. Formatet kan ändras. Ange gärna Fondinsyn och Finansinspektionen som källa.</p>' +
+  (Block "Villkor" "<p>Uppgifterna kommer från myndigheternas öppna register och får användas fritt. Fondinsyns uträkningar får också användas om du anger källan. Inget här är investeringsrådgivning.</p>" "section-gap")
+Page "oppen-data/" "data" "Data och API – ladda ner fonddata | Fondinsyn" "Var Fondinsyns data kommer ifrån, hur ofta den uppdateras och hur du laddar ner den som CSV eller JSON. Öppna data från Finansinspektionen." $defaultImg ('<div class="text-page">' + $odContent + '</div>') -Crumbs @("Data och API", "oppen-data/") -Keep
+Write-Host "  öppen data: $($fileStocks.rows) aktier, $($fileFunds.rows) fonder, $($fileHold.rows) innehav"
 
 # Startsidan och 404
 # Samma topp som introBlock() i app.js, så att sidan inte hoppar när appen tar över

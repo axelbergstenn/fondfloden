@@ -681,6 +681,7 @@
     if (s && s.split) metaParts.push("Splitjusterad ×" + nf1.format(s.split));
 
     var html = '<div class="page-head">' + crumbs + '<div class="title-row"><div class="title-main">' + avatar(name) + '<h1>' + esc(name) + '</h1></div><div class="actions">' + starBtn("stocks", isin) + shareBtn("aktie", isin) + '</div></div><p class="meta">' + metaParts.join(" · ") + "</p></div>";
+    html += alertForm(isin, name);
 
     if (s) {
       html += '<dl class="figures">' +
@@ -734,6 +735,7 @@
     }
 
     html += stockShortSection(isin);
+    html += stockInsiderSection(isin);
 
     if (s) {
       var trades = s.trades;
@@ -1307,6 +1309,96 @@
     savePortfolio(p);
   }
 
+  // ---------- Importera portfölj från banken ----------
+  // Läser en exportfil (CSV) eller en inklistrad tabell från till exempel Avanza eller Nordnet. Allt sker i
+  // webbläsaren. Fondnamnen matchas mot FI:s fonder, andra värdepapper hoppas över.
+
+  function normFund(s) {
+    s = String(s || "").toLowerCase().replace(/[^a-z0-9åäöéü]+/g, " ").replace(/\s+/g, " ").trim();
+    for (var i = 0; i < 3; i++) s = s.replace(/\s(a|b|c|d|r|s|i|x|sek|eur|usd|acc|inc|dis|utd|klass|class|series|ser)$/, "").trim();
+    return s;
+  }
+  function parseNumber(s) {
+    var t = String(s == null ? "" : s).replace(/[\s ]/g, "").replace(/kr|sek/gi, "");
+    t = /,\d{1,2}$/.test(t) ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+    var v = parseFloat(t);
+    return isFinite(v) ? v : null;
+  }
+  // Bästa fond för ett namn: exakt namn först. Annars måste alla ord i det kortare namnet (minst två) finnas i det
+  // längre, så att andelsklass och valuta ("A1 SEK") inte stör men "Aktiefond" och "Globalfond" inte blandas ihop.
+  function matchFund(name) {
+    var n = normFund(name);
+    if (!n) return null;
+    var words = n.split(" "), best = null, bestScore = 0;
+    fundList().forEach(function (f) {
+      var m = normFund(f.name), score;
+      if (m === n) score = 2;
+      else {
+        var mw = m.split(" "), small = mw.length <= words.length ? mw : words, large = small === mw ? words : mw;
+        if (small.length < 2 || !small.every(function (w) { return large.indexOf(w) >= 0; })) return;
+        score = small.length / large.length;
+      }
+      if (score > bestScore || (score === bestScore && best && f.aum > best.aum)) { best = f; bestScore = score; }
+    });
+    return best;
+  }
+  function parseHoldings(text) {
+    var lines = String(text || "").split(/\r?\n/).filter(function (l) { return l.trim(); });
+    if (!lines.length) return [];
+    var delim = ["\t", ";", ","].map(function (c) { return { c: c, n: lines[0].split(c).length }; }).sort(function (a, b) { return b.n - a.n; })[0].c;
+    var rows = lines.map(function (l) { return l.split(delim).map(function (c) { return c.trim().replace(/^"|"$/g, ""); }); });
+    var nameCol = -1, valCol = -1;
+    var hi = rows.findIndex(function (r) { return r.some(function (c) { return /^(namn|värdepapper|instrument|name|fond|fondnamn)$/i.test(c); }); });
+    if (hi >= 0) {
+      var h = rows[hi];
+      nameCol = h.findIndex(function (c) { return /^(namn|värdepapper|instrument|name|fond|fondnamn)$/i.test(c); });
+      valCol = h.findIndex(function (c) { return /marknadsvärde|market value/i.test(c); });
+      if (valCol < 0) valCol = h.findIndex(function (c) { return /värde|belopp|value/i.test(c) && !/gav|anskaffning|kurs|pris|utveckling|%/i.test(c); });
+      rows = rows.slice(hi + 1);
+    }
+    var out = [];
+    rows.forEach(function (r) {
+      var name = nameCol >= 0 ? r[nameCol] : r[0];
+      var val = valCol >= 0 ? parseNumber(r[valCol]) : null;
+      if (val == null) r.forEach(function (c, i) { if (i === nameCol || i === 0) return; var v = parseNumber(c); if (v != null && (val == null || v > val)) val = v; });
+      if (name && val > 0) out.push({ name: name, value: val });
+    });
+    return out;
+  }
+  function importHoldings(text) {
+    var items = parseHoldings(text), p = loadPortfolio(), found = 0, skipped = [];
+    items.forEach(function (it) {
+      var f = matchFund(it.name);
+      if (!f) { skipped.push(it.name); return; }
+      var ex = p.filter(function (x) { return x.id === f.id; })[0];
+      if (ex) ex.amount = Math.round(it.value); else p.push({ id: f.id, amount: Math.round(it.value) });
+      found++;
+    });
+    savePortfolio(p);
+    state.pfImportMsg = !items.length ? "Hittade inga rader med namn och belopp. Kontrollera att filen innehåller en kolumn med värde."
+      : found + (found === 1 ? " fond lades till." : " fonder lades till.") + (skipped.length ? " Hoppade över " + skipped.length + " som inte är svenska fonder hos FI: " + skipped.slice(0, 6).join(", ") + (skipped.length > 6 ? " …" : "") + "." : "");
+    render();
+  }
+  function readImportFile(file) {
+    var r = new FileReader();
+    r.onload = function () {
+      var buf = new Uint8Array(r.result), text;
+      if (buf[0] === 0xff && buf[1] === 0xfe) text = new TextDecoder("utf-16le").decode(buf);
+      else { try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch (e) { text = new TextDecoder("windows-1252").decode(buf); } }
+      importHoldings(text);
+    };
+    r.readAsArrayBuffer(file);
+  }
+  function importBox(open) {
+    return '<details class="pf-import"' + (open ? " open" : "") + "><summary>Importera från din bank</summary>" +
+      '<p class="desc">Exportera ditt innehav som fil från banken, till exempel Avanza eller Nordnet, och välj filen här. Du kan också markera tabellen med dina innehav på bankens sida, kopiera och klistra in. ' +
+      "Allt läses i din webbläsare och skickas ingenstans. Aktier och andra värdepapper hoppas över.</p>" +
+      '<div class="pf-import-row"><label class="btn btn-primary" for="pfFile">Välj fil</label><input type="file" id="pfFile" class="visually-hidden" accept=".csv,.txt,text/csv,text/plain"></div>' +
+      '<textarea id="pfPaste" class="input pf-paste" rows="4" placeholder="Eller klistra in innehavet här"></textarea>' +
+      '<button type="button" class="btn" id="pfPasteBtn">Läs in det inklistrade</button>' +
+      (state.pfImportMsg ? '<p class="pf-import-msg" role="status">' + esc(state.pfImportMsg) + "</p>" : "") + "</details>";
+  }
+
   function viewPortfolio(arg) {
     document.title = "Min fondportfölj – Fondinsyn";
     var head = '<div class="page-head"><h1>Min fondportfölj</h1><p class="meta lead">Fyll i dina fonder och hur mycket du har i varje. Då ser du vilka aktier du faktiskt äger, ' +
@@ -1324,7 +1416,7 @@
         '<button class="btn btn-primary" type="submit">Lägg till</button><span class="form-msg" id="pfMsg" role="status"></span></form>';
 
     if (!p.length) {
-      return head + form + '<div class="empty-state"><h2>Lägg till din första fond</h2><p>Skriv namnet på en fond du äger, till exempel <i>Swedbank Robur Ny Teknik</i>, ' +
+      return head + form + importBox(true) + '<div class="empty-state"><h2>Lägg till din första fond</h2><p>Skriv namnet på en fond du äger, till exempel <i>Swedbank Robur Ny Teknik</i>, ' +
         "och hur många kronor du har i den. Du kan också trycka på <b>+ Min portfölj</b> på en fonds sida.</p></div>";
     }
 
@@ -1386,7 +1478,7 @@
     var weightedFee = total ? feeKr / total * 100 : 0;
     var shareUrl = location.href.split("#")[0] + "#/portfolj/" + encodePortfolio(p);
 
-    return head + form +
+    return head + form + (shared ? "" : importBox(false)) +
       '<div class="highlights section-gap">' +
       highlight("Portföljens värde", kr(total), null, "", p.length + (p.length === 1 ? " fond" : " fonder") + " · " + nf0.format(inStocks / total * 100) + " % i aktier") +
       highlight("Avgifter per år", kr(feeKr), null, nf2.format(weightedFee) + " % i snitt", "Högsta avgiftsklassen i varje fond") +
@@ -1846,6 +1938,123 @@
   }
 
   // Blankning på aktiesidan
+  // ---------- Insynshandel ----------
+  // data/insider.json byggs av scripts/build-insider.ps1 ur FI:s insynsregister (senaste 90 dagarna, bara aktier)
+
+  function needInsider() {
+    return need("insider", function () {
+      return getJSON("data/insider.json").then(function (x) {
+        var rows = x.rows.map(function (r) {
+          return { tx: r[0], pub: r[1], issuer: r[2], isin: r[3], person: r[4], role: r[5], close: !!r[6], nature: r[7],
+            vol: r[8], price: r[9], cur: r[10], sek: r[11], kind: r[7] === "Förvärv" ? "buy" : r[7] === "Avyttring" ? "sell" : "other" };
+        });
+        var byIsin = {};
+        rows.forEach(function (r) { (byIsin[r.isin] = byIsin[r.isin] || []).push(r); });
+        state.insider = { built: x.built, from: x.from, days: x.days, rows: rows, byIsin: byIsin };
+      });
+    });
+  }
+  var insiderFilter = { kind: "buy", min: 100000 };
+  function daysAgo(n) { return new Date(Date.now() - n * 864e5).toISOString().slice(0, 10); }
+  function insiderKind(r) {
+    return r.kind === "buy" ? '<span class="label up">Köp</span>' : r.kind === "sell" ? '<span class="label down">Sälj</span>' : '<span class="label">' + esc(r.nature) + "</span>";
+  }
+  function insiderValue(r) {
+    if (r.sek != null) return '<span class="' + (r.kind === "sell" ? "neg" : r.kind === "buy" ? "pos" : "") + '">' + kr(r.sek) + "</span>";
+    return r.vol != null && r.price != null ? nf0.format(r.vol * r.price) + " " + esc(r.cur) : "–";
+  }
+  function issuerCell(r, sub) {
+    var s = quarterData().se.byIsin[r.isin];
+    return s ? nameCell(stockHref(s), r.issuer, sub) : '<span class="nm-plain">' + esc(r.issuer) + "</span>" + (sub ? '<span class="sub show-sm">' + sub + "</span>" : "");
+  }
+  function personText(r) { return esc(r.person) + (r.close ? " (närstående)" : ""); }
+
+  function viewInsider() {
+    document.title = "Insynshandel – Fondinsyn";
+    var head = '<div class="page-head"><h1>Insynshandel</h1><p class="meta lead">Köp och sälj som vd:ar, styrelseledamöter och andra i ledande ställning har gjort i sina egna bolag. ' +
+      "Från Finansinspektionens insynsregister, uppdateras varje morgon. " + termLink("insynshandel", "Vad är insynshandel?") + "</p></div>";
+    if (!needInsider()) return head + (failed("insider") ? errorBlock() : loadingBlock("Laddar insynshandel…"));
+    var I = state.insider, ds = quarterData().se, since30 = daysAgo(30);
+    var sum = function (list) { return list.reduce(function (a, r) { return a + (r.sek || 0); }, 0); };
+    var buys30 = I.rows.filter(function (r) { return r.kind === "buy" && r.tx >= since30; });
+    var sells30 = I.rows.filter(function (r) { return r.kind === "sell" && r.tx >= since30; });
+
+    // Per bolag under hela perioden: köpt, sålt och hur många olika personer som köpt
+    var by = {};
+    I.rows.forEach(function (r) {
+      if (r.sek == null || r.kind === "other") return;
+      var e = by[r.isin] = by[r.isin] || { r: r, buy: 0, sell: 0, buyers: {} };
+      if (r.kind === "buy") { e.buy += r.sek; e.buyers[r.person] = 1; } else e.sell += r.sek;
+    });
+    var comp = Object.keys(by).map(function (k) { var e = by[k]; e.net = e.buy - e.sell; e.nBuyers = Object.keys(e.buyers).length; return e; });
+    var top = comp.filter(function (e) { return e.net > 0; }).sort(function (a, b) { return b.net - a.net; });
+    var topSold = comp.filter(function (e) { return e.net < 0; }).sort(function (a, b) { return a.net - b.net; });
+
+    var html = head + '<div class="highlights">' +
+      highlight("Insiderköp, 30 dagar", bigSek(sum(buys30)), null, '<span class="pos">' + int(buys30.length) + " affärer</span>", "") +
+      highlight("Insidersälj, 30 dagar", bigSek(sum(sells30)), null, '<span class="neg">' + int(sells30.length) + " affärer</span>", "") +
+      highlight("Mest köpt av insiders", top[0] && top[0].r.issuer, top[0] && ds.byIsin[top[0].r.isin] ? stockHref(ds.byIsin[top[0].r.isin]) : null,
+        top[0] ? '<span class="pos">' + bigSek(top[0].net, true) + "</span>" : "", top[0] ? int(top[0].nBuyers) + (top[0].nBuyers === 1 ? " person" : " personer") + ", " + I.days + " dagar" : "") +
+      "</div>";
+
+    var fundFlow = function (e) { var s = ds.byIsin[e.r.isin]; return s && s.netFlow != null ? s.flow : null; };
+    var compCols = function (sold) {
+      return [
+        { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (e) { return issuerCell(e.r, (sold ? "Sålt " + bigSek(e.sell) : "Köpt " + bigSek(e.buy)) + " · " + int(e.nBuyers) + " köpare"); } },
+        { key: "net", label: "Netto insiders", cell: function (e) { return '<span class="' + cls(e.net) + '">' + bigSek(e.net, true) + "</span>"; }, value: function (e) { return e.net; } },
+        { key: "n", label: "Köpare", hideSm: true, cell: function (e) { return int(e.nBuyers); }, value: function (e) { return e.nBuyers; } },
+        { key: "f", label: "Fondernas nettoköp " + quarterLabel(state.q), hideSm: true, cell: function (e) { var v = fundFlow(e); return v == null ? "–" : '<span class="' + cls(v) + '">' + bigSek(v, true) + "</span>"; },
+          value: function (e) { return fundFlow(e); } }
+      ];
+    };
+    html += '<div class="grid-2 section-gap">' +
+      block("Mest köpt av insiders", "Köp minus sälj de senaste " + I.days + " dagarna, i kronor.", table("ins-top", compCols(false), top, { sort: { col: "net", dir: -1 }, limit: 15 })) +
+      block("Mest sålt av insiders", "Samma period. Försäljningar kan bero på skatt, lån eller optionsprogram.", table("ins-sold", compCols(true), topSold, { sort: { col: "net", dir: 1 }, limit: 15 })) +
+      "</div>";
+
+    // Senaste affärerna med filter
+    var f = insiderFilter;
+    var list = I.rows.filter(function (r) {
+      if (f.kind !== "all" && r.kind !== f.kind) return false;
+      return !f.min || (r.sek != null && r.sek >= f.min);
+    });
+    var seg = function (v, label) { return '<button type="button" class="seg-btn" data-ins-kind="' + v + '" aria-pressed="' + (f.kind === v) + '">' + label + "</button>"; };
+    var cols = [
+      { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (r) { return issuerCell(r, personText(r) + " · " + insiderValue(r)); }, value: function (r) { return r.issuer; } },
+      { key: "p", label: "Person", align: "l", hideSm: true, cell: function (r) { return personText(r) + '<span class="sub">' + esc(r.role) + "</span>"; }, value: function (r) { return r.person; } },
+      { key: "k", label: "Typ", align: "l", cell: function (r) { return insiderKind(r); } },
+      { key: "v", label: "Värde", hideSm: true, cell: insiderValue, value: function (r) { return r.sek; } },
+      { key: "d", label: "Datum", cls: "muted", cell: function (r) { return esc(r.tx); }, value: function (r) { return r.tx; } }
+    ];
+    html += '<section class="block section-gap"><div class="block-head"><h2>Senaste affärerna</h2><div class="seg" role="group" aria-label="Typ av affär">' +
+      seg("buy", "Köp") + seg("sell", "Sälj") + seg("all", "Alla") + "</div></div>" +
+      '<div class="toolbar"><label class="visually-hidden" for="insMin">Minsta värde</label><select id="insMin" class="select-sm">' +
+      [[0, "Alla belopp"], [100000, "Över 100 000 kr"], [1000000, "Över 1 mkr"]].map(function (o) { return '<option value="' + o[0] + '"' + (f.min === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") +
+      '</select><span class="count">' + int(list.length) + " affärer</span></div>" +
+      table("ins-latest", cols, list, { sort: { col: "d", dir: -1 }, limit: 150, csv: true }) + "</section>";
+    html += '<p class="desc section-gap">Källa: Finansinspektionens insynsregister, publiceringar sedan ' + esc(I.from) + ". Bara affärer i aktier visas. " +
+      "Värdet är antal gånger pris och visas i kronor för affärer i svenska kronor.</p>";
+    return html;
+  }
+
+  // Insynshandel i en aktie, för aktiesidan
+  function stockInsiderSection(isin) {
+    if (!needInsider()) return "";
+    var rows = (state.insider.byIsin[isin] || []).filter(function (r) { return r.kind !== "other"; });
+    if (!rows.length) return "";
+    var b = 0, s = 0;
+    rows.forEach(function (r) { if (r.kind === "buy") b += r.sek || 0; else s += r.sek || 0; });
+    var cols = [
+      { key: "p", label: "Person", align: "l", cls: "name", cell: function (r) { return '<span class="nm-plain">' + personText(r) + '</span><span class="sub">' + esc(r.role) + "</span>"; } },
+      { key: "k", label: "Typ", align: "l", cell: insiderKind },
+      { key: "v", label: "Värde", cell: insiderValue },
+      { key: "d", label: "Datum", cls: "muted", cell: function (r) { return esc(r.tx); } }
+    ];
+    return '<section class="block section-gap"><div class="block-head"><h2>Insynshandel</h2><span class="note">' + state.insider.days + " dagar · köpt " + bigSek(b) + " · sålt " + bigSek(s) + "</span></div>" +
+      table("stock-ins-" + isin, cols, rows, { static: true, limit: 10 }) +
+      '<a class="more" href="#/insyn">All insynshandel</a></section>';
+  }
+
   function stockShortSection(isin) {
     if (!needShorts()) return "";
     var d = state.shorts, a = d.byIsin[isin], hs = d.holdersOf[isin] || [], ser = d.series[isin];
@@ -2134,7 +2343,18 @@
     return '<section class="newsletter section-gap"><div><h2>Få kvartalsrapporten på mejlen</h2><p class="desc">Fyra mejl per år när ny fonddata kommer. Inget annat, och du kan avsluta när du vill.</p></div>' +
       '<form class="nl-form" action="https://buttondown.com/api/emails/embed-subscribe/' + encodeURIComponent(NEWSLETTER) + '" method="post" target="_blank">' +
       '<input class="input" type="email" name="email" required placeholder="din@epost.se" aria-label="E-postadress" autocomplete="email">' +
-      '<input type="hidden" name="embed" value="1"><button class="btn btn-primary" type="submit">Prenumerera</button></form></section>';
+      '<input type="hidden" name="tag" value="nyhetsbrev"><input type="hidden" name="embed" value="1"><button class="btn btn-primary" type="submit">Prenumerera</button></form></section>';
+  }
+
+  // Bevakning via mejl: Buttondown-prenumeration med etiketten a-<ISIN>. scripts/alerts.ps1 skickar mejlen.
+  function alertForm(isin, name) {
+    if (!NEWSLETTER) return "";
+    return '<details class="alert-box"><summary>Få mejl om ' + esc(name) + "</summary>" +
+      '<form class="nl-form" action="https://buttondown.com/api/emails/embed-subscribe/' + encodeURIComponent(NEWSLETTER) + '" method="post" target="_blank">' +
+      '<input type="hidden" name="tag" value="a-' + esc(isin) + '"><input type="hidden" name="embed" value="1">' +
+      '<input class="input" type="email" name="email" required placeholder="din@epost.se" aria-label="E-postadress" autocomplete="email"><button class="btn btn-primary" type="submit">Bevaka</button></form>' +
+      '<p class="desc">Du får ett mejl när fonderna har köpt eller sålt aktien ett nytt kvartal, när insiders handlar, när blankningen ändras mycket eller när ett bud kommer. ' +
+      "Bekräfta adressen via mejlet du får. Du kan avsluta när du vill.</p></details>";
   }
 
   // ---------- Fondbolag ----------
@@ -2284,7 +2504,7 @@
       "<li>Indexfonder identifieras på namnet. Deras affärer speglar oftast in- och utflöden i fonden snarare än aktiva beslut.</li>" +
       "<li><b>Köpsviter</b> räknas på historiken sedan 2018. Kvartal med nettoköp under 0,5 mkr räknas inte.</li>" +
       "<li>Utländska aktier visas om svenska fonder sammanlagt äger minst 20 mkr. Obligationer och fondandelar är borttagna.</li></ul>" +
-      "<h2>Uppdatering</h2><p>Datan hämtas automatiskt från Finansinspektionen varje dag. Blankningen ändras dagligen, fondinnehaven en gång per kvartal. Fonderna rapporterar ungefär sex veckor efter kvartalsslut, och sena rapporter kan tillkomma efteråt.</p>" +
+      "<h2>Uppdatering</h2><p>Datan hämtas automatiskt från Finansinspektionen varje dag. Blankningen ändras dagligen, fondinnehaven en gång per kvartal. Finansinspektionen publicerar kvartalets innehav ungefär tolv veckor efter kvartalsslut (Q2 2026, som slutade 30 juni, kom 21 september). FI publicerar ibland om äldre kvartal med rättelser, och de hämtas också automatiskt.</p>" +
       (m && m.src ? "<p>Källfiler för " + quarterLabel(state.q) + ": <code>" + esc(m.src[0]) + "</code> och <code>" + esc(m.src[1]) + "</code>.</p>" : "") +
       '<h2>Källa</h2><p><a href="https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" target="_blank" rel="noopener">Finansinspektionen – Fondinnehav per kvartal</a></p>' +
       "<p>Informationen på sidan är inte investeringsrådgivning.</p></div>";
@@ -2344,6 +2564,7 @@
       case "uppkop": html = viewOffers(r.arg); break;
       case "rapport": html = viewReport(r.arg); break;
       case "blankning": html = viewShorts(); break;
+      case "insyn": html = viewInsider(); break;
       case "blankare": html = r.arg ? viewHolder(r.arg) : viewHolders(); break;
       case "fondbolag": html = r.arg ? viewCompany(r.arg) : viewCompanies(); break;
       case "ordlista": html = viewGlossary(r.arg); break;
@@ -2555,6 +2776,9 @@
       return;
     }
 
+    if (e.target.id === "pfPasteBtn") { importHoldings($("pfPaste").value); return; }
+    var insKind = e.target.closest("[data-ins-kind]");
+    if (insKind) { insiderFilter.kind = insKind.getAttribute("data-ins-kind"); var iy = window.scrollY; render(); window.scrollTo(0, iy); return; }
     var shMin = e.target.closest("[data-short-min]");
     if (shMin) { shortFilter.min = +shMin.getAttribute("data-short-min"); var sy = window.scrollY; render(); window.scrollTo(0, sy); return; }
     if (e.target.id === "repShare") {
@@ -2624,6 +2848,8 @@
   });
   document.addEventListener("change", function (e) {
     var id = e.target.id;
+    if (id === "pfFile" && e.target.files && e.target.files[0]) { readImportFile(e.target.files[0]); return; }
+    if (id === "insMin") { insiderFilter.min = +e.target.value; var my = window.scrollY; render(); window.scrollTo(0, my); return; }
     if (id === "stockSector") { stockFilter.sector = e.target.value; renderStockTable(); }
     if (id === "stockMin") { stockFilter.min = e.target.value; renderStockTable(); }
     if (id === "fundCo") { fundFilter.co = e.target.value; renderFundTable(); }

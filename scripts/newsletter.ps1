@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Skapar ett utkast till kvartalets nyhetsbrev hos Buttondown när ett nytt kvartal har byggts.
 
@@ -66,7 +66,9 @@ $lines += "**[Läs hela kvartalsrapporten]($($SiteUrl)#/rapport)**: sektorrotati
 $lines += ""
 $lines += "_Fondinsyn bygger på Finansinspektionens öppna data. Inte investeringsrådgivning._"
 
-$body = @{ subject = "Fondinsyn $($ql): det här köpte och sålde fonderna"; body = ($lines -join "`n"); status = "draft" } | ConvertTo-Json -Compress
+$body = @{ subject = "Fondinsyn $($ql): det här köpte och sålde fonderna"; body = ($lines -join "`n"); status = "draft"
+  # Bara till dem som anmält sig till nyhetsbrevet (inte till dem som bara bevakar en aktie)
+  filters = @{ predicate = "and"; groups = @(); filters = @(@{ operator = "contains"; field = "subscriber.tags"; value = "nyhetsbrev" }) } } | ConvertTo-Json -Depth 6 -Compress
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
 Invoke-RestMethod -Method Post -Uri "https://api.buttondown.com/v1/emails" -Headers @{ Authorization = "Token $key" } -ContentType "application/json; charset=utf-8" -Body $bytes | Out-Null
 Write-Host "Nyhetsbrev: utkast för $($q.id) skapat hos Buttondown."

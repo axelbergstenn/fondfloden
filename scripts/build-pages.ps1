@@ -15,7 +15,7 @@
 #>
 param(
   [string]$Site = "site",
-  [string]$BaseUrl = "https://fondinsyn.se",
+  [string]$BaseUrl = "https://www.fondinsyn.se",
   # Skriver även om site/index.html med förifyllt innehåll. Används bara i bygget, inte lokalt.
   [switch]$WriteHome
 )
@@ -1200,7 +1200,7 @@ $odContent = '<div class="page-head"><h1>Data och API</h1></div>' +
   (Block "Ladda ner för Excel" (Table @("Fil", "Innehåll", "Rader", "Storlek") $dlRows) "section-gap") +
   '<p class="desc">CSV med semikolon och decimalkomma, ' + $QL + ". Öppnas direkt i svenska Excel och Google Kalkylark.</p>" +
   (Block "JSON för utvecklare" (Table @("Adress", "Innehåll") $apiRows) "section-gap") +
-  '<p class="desc">Filerna ligger på https://fondinsyn.se och kan hämtas fritt utan nyckel, även från andra webbplatser. Formatet kan ändras. Ange gärna Fondinsyn och Finansinspektionen som källa.</p>' +
+  '<p class="desc">Filerna ligger på https://www.fondinsyn.se och kan hämtas fritt utan nyckel, även från andra webbplatser. Formatet kan ändras. Ange gärna Fondinsyn och Finansinspektionen som källa.</p>' +
   (Block "Villkor" "<p>Uppgifterna kommer från myndigheternas öppna register och får användas fritt. Fondinsyns uträkningar får också användas om du anger källan. Inget här är investeringsrådgivning.</p>" "section-gap")
 Page "oppen-data/" "data" "Data och API – ladda ner fonddata | Fondinsyn" "Var Fondinsyns data kommer ifrån, hur ofta den uppdateras och hur du laddar ner den som CSV eller JSON. Öppna data från Finansinspektionen." $defaultImg ('<div class="text-page">' + $odContent + '</div>') -Crumbs @("Data och API", "oppen-data/") -Keep
 Write-Host "  öppen data: $($fileStocks.rows) aktier, $($fileFunds.rows) fonder, $($fileHold.rows) innehav"

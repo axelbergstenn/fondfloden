@@ -49,8 +49,8 @@ function Fetch($from, $to) {
   for ($try = 1; $try -le 6; $try++) {
     try {
       # curl är betydligt snabbare än Invoke-WebRequest mot FI:s server
-      if ($Curl) { & $Curl.Source -s -f -L --connect-timeout 15 -m 40 -A "Mozilla/5.0 (Fondinsyn; +https://fondinsyn.se)" -o $Tmp $url; if ($LASTEXITCODE -ne 0) { throw "curl avslutades med kod $LASTEXITCODE" } }
-      else { Invoke-WebRequest -Uri $url -OutFile $Tmp -UseBasicParsing -UserAgent "Mozilla/5.0 (Fondinsyn; +https://fondinsyn.se)" -TimeoutSec 120 }
+      if ($Curl) { & $Curl.Source -s -f -L --connect-timeout 15 -m 40 -A "Mozilla/5.0 (Fondinsyn; +https://www.fondinsyn.se)" -o $Tmp $url; if ($LASTEXITCODE -ne 0) { throw "curl avslutades med kod $LASTEXITCODE" } }
+      else { Invoke-WebRequest -Uri $url -OutFile $Tmp -UseBasicParsing -UserAgent "Mozilla/5.0 (Fondinsyn; +https://www.fondinsyn.se)" -TimeoutSec 120 }
       break
     } catch {
       if ($try -eq 6) { throw }

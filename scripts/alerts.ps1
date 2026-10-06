@@ -160,7 +160,7 @@ $sent = 0
 foreach ($isin in $mails.Keys) {
   if ($sent -ge $MaxEmails) { Write-Host "  taket på $MaxEmails mejl nått"; break }
   $m = $mails[$isin]
-  $body = ($m.parts -join "`n") + "`n[Se allt om $($m.name) på Fondinsyn](https://fondinsyn.se/#/aktie/$isin)`n`n" +
+  $body = ($m.parts -join "`n") + "`n[Se allt om $($m.name) på Fondinsyn](https://www.fondinsyn.se/#/aktie/$isin)`n`n" +
     "Du får det här mejlet eftersom du bevakar $($m.name) på Fondinsyn. Inget här är investeringsrådgivning."
   $payload = @{
     subject = "Fondinsyn: nytt om $($m.name)"

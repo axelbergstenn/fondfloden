@@ -1922,10 +1922,7 @@
   function needInsider() {
     return need("insider", function () {
       return getJSON("data/insider.json").then(function (x) {
-        var rows = x.rows.map(function (r) {
-          return { tx: r[0], pub: r[1], issuer: r[2], isin: r[3], person: r[4], role: r[5], close: !!r[6], nature: r[7],
-            vol: r[8], price: r[9], cur: r[10], sek: r[11], kind: r[7] === "Förvärv" ? "buy" : r[7] === "Avyttring" ? "sell" : "other" };
-        });
+        var rows = x.rows.map(insiderRow);
         var byIsin = {};
         rows.forEach(function (r) { (byIsin[r.isin] = byIsin[r.isin] || []).push(r); });
         state.insider = { built: x.built, from: x.from, days: x.days, rows: rows, byIsin: byIsin };
@@ -1945,7 +1942,12 @@
     var s = quarterData().se.byIsin[r.isin];
     return s ? nameCell(stockHref(s), r.issuer, sub) : '<span class="nm-plain">' + esc(r.issuer) + "</span>" + (sub ? '<span class="sub show-sm">' + sub + "</span>" : "");
   }
-  function personText(r) { return esc(r.person) + (r.close ? " (närstående)" : ""); }
+  // En del anmälningar har namnet i bara gemener ("björn krasse"): ge dem stor bokstav
+  function personName(p) {
+    p = String(p || "");
+    return p === p.toLowerCase() ? p.replace(/(^|[\s-])(\S)/g, function (m, a, c) { return a + c.toUpperCase(); }) : p;
+  }
+  function personText(r) { return esc(personName(r.person)) + (r.close ? " (närstående)" : ""); }
 
   function viewInsider() {
     document.title = "Insynshandel – Fondinsyn";
@@ -1985,7 +1987,7 @@
         { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (e) { return issuerCell(e.r, (sold ? "Sålt " + bigSek(e.sell) : "Köpt " + bigSek(e.buy)) + " · " + int(e.nBuyers) + " köpare"); } },
         { key: "net", label: "Netto insiders", cell: function (e) { return '<span class="' + cls(e.net) + '">' + bigSek(e.net, true) + "</span>"; }, value: function (e) { return e.net; } },
         { key: "n", label: "Köpare", hideSm: true, cell: function (e) { return int(e.nBuyers); }, value: function (e) { return e.nBuyers; } },
-        { key: "f", label: "Fondernas nettoköp " + quarterLabel(state.q), hideSm: true, cell: function (e) { var v = fundFlow(e); return v == null ? "–" : '<span class="' + cls(v) + '">' + bigSek(v, true) + "</span>"; },
+        { key: "f", label: "Fondernas nettoköp " + quarterLabel(state.q), cell: function (e) { var v = fundFlow(e); return v == null ? "–" : '<span class="' + cls(v) + '">' + bigSek(v, true) + "</span>"; },
           value: function (e) { return fundFlow(e); } }
       ];
     };
@@ -2024,8 +2026,10 @@
   // Insynshandel i en aktie, för aktiesidan
   // Insynshandel i en aktie, för aktiesidan. Hela historiken sedan 2019 ligger i data/insyn/<isin>.json
   // (byggs ur arkivet av scripts/build-pages.ps1). Saknas filen används de senaste 90 dagarna.
+  // FI:s befattningar har ofta hårda mellanslag ("Verkställande direktör") som inte kan radbrytas
+  function plainSpaces(s) { return String(s == null ? "" : s).replace(/\s+/g, " ").trim(); }
   function insiderRow(r) {
-    return { tx: r[0], pub: r[1], issuer: r[2], isin: r[3], person: r[4], role: r[5], close: !!r[6], nature: r[7],
+    return { tx: r[0], pub: r[1], issuer: r[2], isin: r[3], person: plainSpaces(r[4]), role: plainSpaces(r[5]), close: !!r[6], nature: r[7],
       vol: r[8], price: r[9], cur: r[10], sek: r[11], kind: r[7] === "Förvärv" ? "buy" : r[7] === "Avyttring" ? "sell" : "other" };
   }
   function stockInsiderRows(isin) {
@@ -2049,10 +2053,10 @@
     var since = daysAgo(365), b = 0, s = 0;
     rows.forEach(function (r) { if (r.tx < since) return; if (r.kind === "buy") b += r.sek || 0; else s += r.sek || 0; });
     var cols = [
-      { key: "p", label: "Person", align: "l", cls: "name", cell: function (r) { return '<span class="nm-plain">' + personText(r) + '</span><span class="sub">' + esc(r.role) + "</span>"; } },
+      { key: "p", label: "Person", align: "l", cls: "name", cell: function (r) { return '<span class="nm-plain">' + personText(r) + '</span><span class="sub">' + esc(r.role) + '<span class="show-sm-i"> · ' + esc(r.tx) + "</span></span>"; } },
       { key: "k", label: "Typ", align: "l", cell: insiderKind },
       { key: "v", label: "Värde", cell: insiderValue },
-      { key: "d", label: "Datum", cls: "muted", cell: function (r) { return esc(r.tx); } }
+      { key: "d", label: "Datum", cls: "muted", hideSm: true, cell: function (r) { return esc(r.tx); } }
     ];
     var first = rows[rows.length - 1].tx.slice(0, 4);
     return '<section class="block section-gap"><div class="block-head"><h2>Insynshandel</h2><span class="note">' + (b || s ? "Senaste 12 månaderna: köpt " + bigSek(b) + " · sålt " + bigSek(s) : "Inga köp eller sälj de senaste 12 månaderna") + "</span></div>" +

@@ -1064,12 +1064,11 @@ if ($gl) {
 
 # Startsidan och 404
 # Samma topp som introBlock() i app.js, så att sidan inte hoppar när appen tar över
-$intro = '<section class="hero"><div class="hero-text"><p class="eyebrow">' + $QL + " jämfört med " + (QLabel ([string]$qMeta.prevId)) + "</p>" +
-  "<h1>Vad köper och säljer fonderna?</h1>" +
-  '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
-  "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
-  "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
-  "Siffrorna gäller innehaven den " + $asOf + " jämfört med " + (DateText $qMeta.prev) + '. <a href="/#/om">Om datan och metoden</a></p></div>' +
+$intro = '<section class="hero"><div class="hero-text"><h1>Svenska fonders köp och sälj</h1>' +
+  '<p class="hero-sub">' + $QL + " jämfört med " + (QLabel ([string]$qMeta.prevId)) + ", innehav den " + $asOf + "</p>" +
+  '<p class="intro">Varje kvartal rapporterar fondbolagen alla sina innehav till Finansinspektionen. Fondinsyn räknar ut vad fonderna har köpt och sålt, ' +
+  "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också avgifter, blankning och uppköp.</p>" +
+  '<div class="hero-links"><a class="btn btn-primary" href="/rapport/' + (ReportSlug $Q) + '/">Läs kvartalsrapporten</a><a class="btn" href="/#/om">Om datan</a></div></div>' +
   '<div class="hero-side"><dl class="hero-kpis">' + (Fig "Nettoköp svenska aktier" (Colored $tNet (BigSek $tNet -Sign))) + (Fig "Fonder som jämförs" (Num0 $tFunds)) +
   (Fig "Svenska aktier" (Num0 $tHeld)) + (Fig "Fondernas innehav" (BigSek $tValue)) + "</dl>" +
   '<div class="hero-chart"><div class="chart-title">Nettoköp per kvartal <span>svenska aktier, mdkr</span></div><div class="sk sk-chart"></div></div></div></section>'

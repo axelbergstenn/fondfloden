@@ -517,13 +517,12 @@
     var m = quarterData().meta, t = ds.totals, net = t.buy + t.sell;
     var kpi = function (label, value) { return "<div><dt>" + label + "</dt><dd>" + value + "</dd></div>"; };
     var word = marketWord();
-    return '<section class="hero"><div class="hero-text"><p class="eyebrow">' + quarterLabel(m.id) + " jämfört med " + quarterLabel(m.prevId) + "</p>" +
-      "<h1>Vad köper och säljer fonderna?</h1>" +
-      '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
-      "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
-      "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
-      "Siffrorna gäller innehaven den " + dateText(m.curr) + " jämfört med " + dateText(m.prev) + '. <a href="#/om">Om datan och metoden</a></p>' +
-      '<button type="button" class="intro-more" data-expand>Läs mer</button></div>' +
+    return '<section class="hero"><div class="hero-text">' +
+      "<h1>Svenska fonders köp och sälj</h1>" +
+      '<p class="hero-sub">' + quarterLabel(m.id) + " jämfört med " + quarterLabel(m.prevId) + ", innehav den " + dateText(m.curr) + "</p>" +
+      '<p class="intro">Varje kvartal rapporterar fondbolagen alla sina innehav till Finansinspektionen. Fondinsyn räknar ut vad fonderna har köpt och sålt, ' +
+      "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också avgifter, blankning och uppköp.</p>" +
+      '<div class="hero-links"><a class="btn btn-primary" href="#/rapport">Läs kvartalsrapporten</a><a class="btn" href="#/om">Om datan</a></div></div>' +
       '<div class="hero-side"><dl class="hero-kpis">' +
       kpi("Nettoköp " + word + " aktier", '<span class="' + cls(net) + '">' + bigSek(net, true) + "</span>") +
       kpi("Fonder som jämförs", int(t.funds)) +
@@ -590,11 +589,9 @@
         : highlight("Längsta köpsvit", null, null, '<span class="muted">Laddar…</span>', "")) +
       "</div>";
 
-    var reportBanner = state.market === "se" ? '<a class="report-banner" href="#/rapport"><span class="rb-tag">Kvartalsrapport</span><span class="rb-text">' +
-      quarterLabel(state.q) + ": vad fonderna köpte och sålde</span><span class=\"rb-arrow\">Läs rapporten →</span></a>" : "";
-    return introBlock(ds) + watchBlock() + reportBanner + highlights +
+    return introBlock(ds) + watchBlock() + highlights +
       '<div class="grid-2 section-gap">' +
-      block("Störst nettoköp", "Förändring i antal aktier × kurs vid kvartalsslut. " + termLink("nettokop", "Hur räknas det?"), table("ov-buy", flowCols, buys, st) + '<a class="more" href="#/aktier">Alla aktier →</a>') +
+      block("Störst nettoköp", "Förändring i antal aktier × kurs vid kvartalsslut. " + termLink("nettokop", "Hur räknas det?"), table("ov-buy", flowCols, buys, st) + '<a class="more" href="#/aktier">Alla aktier</a>') +
       block("Störst nettosälj", "&nbsp;", table("ov-sell", flowCols, sells, st)) +
       "</div>" +
       sectorBlock(hasHist) +
@@ -612,15 +609,8 @@
       "</div>";
   }
 
-  // Liten ikon uppe till höger på markeringskorten
-  function hlIcon(label) {
-    var kind = /köpsvit/i.test(label) ? "brand" : /^mest köpt/i.test(label) ? "pos" : /^mest sålt/i.test(label) ? "neg" : null;
-    if (!kind) return "";
-    var p = { pos: "M7 17L17 7M9 7h8v8", neg: "M7 7l10 10M17 9v8H9", brand: "M4 17l5-5 4 4 7-7M15 9h5v5" }[kind];
-    return '<span class="hl-icon ' + kind + '" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="' + p + '"/></svg></span>';
-  }
   function highlight(label, name, href, value, note) {
-    return '<div class="hl"><div class="hl-label">' + label + "</div>" + hlIcon(label) +
+    return '<div class="hl"><div class="hl-label">' + label + "</div>" +
       (!name ? '<div class="hl-name muted">–</div>' : href ? '<a class="hl-name" href="' + href + '">' + esc(name) + "</a>" : '<div class="hl-name">' + esc(name) + "</div>") +
       '<div class="hl-value">' + value + "</div>" + (note ? '<div class="hl-note">' + note + "</div>" : "") + "</div>";
   }
@@ -784,7 +774,7 @@
     var typeOpts = [["", "Alla fonder"], ["active", "Aktiva aktiefonder"], ["index", "Indexfonder"], ["closet", "Indexnära med hög avgift"]].map(function (o) {
       return '<option value="' + o[0] + '"' + (fundFilter.type === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
     }).join("");
-    return '<div class="page-head"><div class="title-row"><h1>Fonder</h1><a class="btn" href="#/fondbolag">Alla fondbolag →</a></div><p class="meta">Alla svenska värdepappersfonder, ' + quarterLabel(state.q) + ". Köp och sälj avser " + marketWord() + " aktier.</p></div>" +
+    return '<div class="page-head"><div class="title-row"><h1>Fonder</h1><a class="btn" href="#/fondbolag">Alla fondbolag</a></div><p class="meta">Alla svenska värdepappersfonder, ' + quarterLabel(state.q) + ". Köp och sälj avser " + marketWord() + " aktier.</p></div>" +
       '<div class="toolbar">' +
       '<input class="input" type="search" id="fundSearch" placeholder="Sök fond eller fondbolag" value="' + esc(fundFilter.q) + '" autocomplete="off">' +
       '<select class="select-sm" id="fundType" aria-label="Typ av fond">' + typeOpts + "</select>" +
@@ -1843,7 +1833,7 @@
         { key: "pct", label: "Blankat", cell: function (a) { return nf2.format(a.pct) + " %"; } },
         { key: "flow", label: "Fonderna köpte", cell: function (a) { var s = shortStock(a.isin); return '<span class="pos">' + mkr(s.flow, true) + " mkr</span>"; } }
       ], conflict, { static: true, empty: "Inga sådana aktier just nu." })) +
-      block("Största blankarna", "Fonder och förvaltare med flest offentliga positioner just nu.", table("shorts-holders", holderCols, holderList.slice(0, 12), { static: true }) + '<a class="more" href="#/blankare">Alla blankare →</a>') +
+      block("Största blankarna", "Fonder och förvaltare med flest offentliga positioner just nu.", table("shorts-holders", holderCols, holderList.slice(0, 12), { static: true }) + '<a class="more" href="#/blankare">Alla blankare</a>') +
       "</div>" +
       '<div class="grid-2 section-gap">' +
       block("Ökad blankning", "Störst ökning av offentliga positioner senaste 30 dagarna", table("shorts-up", chCols, rising, { static: true, empty: "Ingen ökning." })) +
@@ -2273,7 +2263,7 @@
       '<h2 class="section-title">Ordlista</h2>' +
       '<div class="glossary-index">' + terms.map(function (t) { return '<a href="#/ordlista/' + t[0] + '">' + esc(t[1]) + "</a>"; }).join("") + "</div>" +
       '<dl class="glossary">' + terms.map(function (t) {
-        return '<div class="g-item' + (t[0] === slug ? " g-active" : "") + '" id="term-' + t[0] + '"><dt>' + esc(t[1]) + "</dt><dd>" + esc(t[2]) + ' <a href="/ordlista/' + t[0] + '/">Exempel ur datan →</a></dd></div>';
+        return '<div class="g-item' + (t[0] === slug ? " g-active" : "") + '" id="term-' + t[0] + '"><dt>' + esc(t[1]) + "</dt><dd>" + esc(t[2]) + ' <a href="/ordlista/' + t[0] + '/">Exempel ur datan</a></dd></div>';
       }).join("") + "</dl>";
     if (slug) setTimeout(function () { var el = $("term-" + slug); if (el) el.scrollIntoView({ block: "center" }); }, 0);
     return html;
@@ -2338,6 +2328,7 @@
   function render() {
     if (!state.q || !quarterData() || !quarterData().se) return;
     var r = route();
+    document.body.setAttribute("data-page", r.page);
     document.title = "Fondinsyn – vad köper och säljer svenska fonder?";
     state.charts = [];
     var html = null;
@@ -2443,10 +2434,17 @@
   window.addEventListener("scroll", function () { document.body.classList.toggle("scrolled", window.scrollY > 4); }, { passive: true });
   window.addEventListener("scroll", function () { if (!$("moreMenu").hidden && !$("moreMenu").classList.contains("sheet")) toggleMore(false); }, { passive: true });
 
+  // Varje sida minns var man var. Tillbaka och Framåt hamnar på samma ställe, en ny sida börjar högst upp.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  function saveScroll() { try { history.replaceState({ scroll: window.scrollY }, ""); } catch (e) { /* t.ex. i förhandsvisning */ } }
+  var scrollTimer = null;
+  window.addEventListener("scroll", function () { clearTimeout(scrollTimer); scrollTimer = setTimeout(saveScroll, 150); }, { passive: true });
+  document.addEventListener("click", saveScroll, true);
   window.addEventListener("hashchange", function () {
     toggleMore(false);
     render();
-    window.scrollTo(0, 0);
+    var st = history.state;
+    window.scrollTo(0, st && st.scroll != null ? st.scroll : 0);
   });
 
   var resizeTimer = null, lastWidth = window.innerWidth;
@@ -2477,8 +2475,6 @@
 
   document.addEventListener("click", function (e) {
     if (e.target.closest && e.target.closest("#themeBtn")) { setTheme(isDark() ? "light" : "dark"); return; }
-    var expand = e.target.closest && e.target.closest("[data-expand]");
-    if (expand) { expand.closest(".hero").classList.add("expanded"); return; }
     // Hela raden i en tabell går att klicka på och öppnar raden första länk
     var row = e.target.closest && e.target.closest(".table-wrap tbody tr");
     if (row && !e.target.closest("a, button, input, select, label")) {
@@ -2668,7 +2664,10 @@
     var saved = store("ff-quarter");
     var id = ids.indexOf(saved) >= 0 ? saved : ids[0];
     sel.value = id;
-    return selectQuarter(id);
+    return selectQuarter(id).then(function () {
+      var st = history.state;
+      if (st && st.scroll) window.scrollTo(0, st.scroll);
+    });
   }).catch(function (err) {
     console.error(err);
     $("summary").textContent = "Kunde inte läsa data.";

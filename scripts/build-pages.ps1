@@ -1070,8 +1070,9 @@ $intro = '<section class="hero"><div class="hero-text"><p class="eyebrow">' + $Q
   "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
   "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
   "Siffrorna gäller innehaven den " + $asOf + " jämfört med " + (DateText $qMeta.prev) + '. <a href="/#/om">Om datan och metoden</a></p></div>' +
-  '<dl class="hero-kpis">' + (Fig "Nettoköp svenska aktier" (Colored $tNet (BigSek $tNet -Sign))) + (Fig "Fonder som jämförs" (Num0 $tFunds)) +
-  (Fig "Svenska aktier" (Num0 $tHeld)) + (Fig "Fondernas innehav" (BigSek $tValue)) + "</dl></section>"
+  '<div class="hero-side"><dl class="hero-kpis">' + (Fig "Nettoköp svenska aktier" (Colored $tNet (BigSek $tNet -Sign))) + (Fig "Fonder som jämförs" (Num0 $tFunds)) +
+  (Fig "Svenska aktier" (Num0 $tHeld)) + (Fig "Fondernas innehav" (BigSek $tValue)) + "</dl>" +
+  '<div class="hero-chart"><div class="chart-title">Nettoköp per kvartal <span>svenska aktier, mdkr</span></div><div class="sk sk-chart"></div></div></div></section>'
 if ($WriteHome) {
   $cont = @($pageStocks | Where-Object { $null -ne $_.netFlow -and $_.price })
   $rowsB = NewList; foreach ($s in @($cont | Where-Object { $_.flow -gt 0 } | Sort-Object flow -Descending | Select-Object -First 15)) { $rowsB.Add(@((A (StockUrl $s) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }

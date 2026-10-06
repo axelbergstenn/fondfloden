@@ -849,7 +849,7 @@ function TermExample($slug) {
     "avkastning" {
       if (-not $perf) { return "" }
       $l = @($infos | Where-Object { $p = $perf.funds.($_.id); $p -and $null -ne $p[3] } | Sort-Object { $perf.funds.($_.id)[3] } -Descending | Select-Object -First 10)
-      return (Block "Högst snittavkastning per år, fem år" (FundTable $l @("Fond", "Snitt per år") { param($f) @(PctPlain $perf.funds.($f.id)[3]) }) "section-gap") +
+      return (Block "Högst avkastning, fem år" (FundTable $l @("Fond", "Per år (CAGR)", "Totalt, ca") { param($f) $r = [double]$perf.funds.($f.id)[3]; @((PctPlain $r), ((Fmt ((([math]::Pow(1 + $r / 100, 5)) - 1) * 100) 0) + " %")) }) "section-gap") +
         '<p class="desc">Avkastning efter avgifter enligt Pensionsmyndigheten, beräknad ' + (Esc $perf.calculated) + ". Historisk avkastning är ingen garanti för framtida avkastning.</p>"
     }
     "split" {

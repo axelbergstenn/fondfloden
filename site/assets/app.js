@@ -998,8 +998,10 @@
       { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return esc(f.co); }, value: function (f) { return f.co; } },
       { key: "fee", label: "Avgift", cell: function (f) { return nf2.format(f.feeMax) + " %"; }, value: function (f) { return f.feeMax; } },
       { key: "ar", label: "Aktiv risk", hideSm: true, cell: function (f) { return pctPlain(f.ar); }, value: function (f) { return f.ar; } },
-      { key: "r5", label: "Avkastning 5 år", hideSm: true, cell: function (f) { var p = hasPerf && perfOf(f.id); return p ? retText(p[3]) : "–"; },
+      { key: "r5", label: "Per år, 5 år", hideSm: true, cell: function (f) { var p = hasPerf && perfOf(f.id); return p ? retText(p[3]) : "–"; },
         value: function (f) { var p = hasPerf && perfOf(f.id); return p ? p[3] : null; } },
+      { key: "t5", label: "Totalt, 5 år", hideSm: true, cell: function (f) { var p = hasPerf && perfOf(f.id); return p ? retApprox(total5(p)) : "–"; },
+        value: function (f) { var p = hasPerf && perfOf(f.id); return p ? total5(p) : null; } },
       { key: "as", label: "Aktiv andel", hideSm: true, cell: function (f) { var p = hasWorld && fundProfile(f.id); return p ? pctShare(p.active) : "…"; },
         value: function (f) { var p = hasWorld && fundProfile(f.id); return p ? p.active : null; } },
       { key: "aum", label: "Förmögenhet (mkr)", hideSm: true, cell: function (f) { return mkr(f.aum); }, value: function (f) { return f.aum; } },
@@ -1543,7 +1545,8 @@
       row("Antal aktier", function (f) { return int(f.id === idA ? ov.a.n : ov.b.n); }) +
       row(termLink("aktiv-andel", "Aktiv andel"), function (f) { var p = fundProfile(f.id); return p ? pctShare(p.active) : "–"; }) +
       row(termLink("koncentration", "Tio största"), function (f) { var p = fundProfile(f.id); return p ? pctShare(p.top10) : "–"; }) +
-      row(termLink("avkastning", "Avkastning snitt 5 år"), function (f) { var p = needPerf() && perfOf(f.id); return p ? retText(p[3]) : "–"; }) +
+      row(termLink("avkastning", "Avkastning per år, 5 år"), function (f) { var p = needPerf() && perfOf(f.id); return p ? retText(p[3]) : "–"; }) +
+      row("Total avkastning, 5 år", function (f) { var p = needPerf() && perfOf(f.id); return p ? retApprox(total5(p)) : "–"; }) +
       row("Jämförelseindex", function (f) { return esc(f.bench || "–"); }) +
       "</tbody></table></div>" +
       '<section class="block section-gap"><div class="block-head"><h2>Gemensamma innehav</h2><span class="note">Andel av fondernas aktieinnehav</span></div>' +
@@ -1678,6 +1681,10 @@
   // [i år, förra året, året före, snitt 5 år, avgift i premiepensionen, risk, namn, kategori]
   function perfOf(id) { return state.perf && state.perf.funds[id] ? state.perf.funds[id] : null; }
   function retText(v) { return v == null ? "–" : '<span class="' + cls(v) + '">' + (v > 0 ? "+" : "") + fixMinus(nf0.format(v)) + " %</span>"; }
+  // Total avkastning över fem år ur den genomsnittliga årliga (CAGR): (1 + r)^5 − 1. Pensionsmyndigheten avrundar
+  // snittet till hela procent, så totalen är ungefärlig.
+  function total5(p) { return p && p[3] != null ? (Math.pow(1 + p[3] / 100, 5) - 1) * 100 : null; }
+  function retApprox(v) { return v == null ? "–" : '<span class="' + cls(v) + '">ca ' + (v > 0 ? "+" : "") + fixMinus(nf0.format(v)) + " %</span>"; }
 
   function perfBlock(id) {
     if (!needPerf()) return "";
@@ -1686,7 +1693,7 @@
     return '<section class="block section-gap"><div class="block-head"><h2>' + termLink("avkastning", "Avkastning") + "</h2>" +
       '<span class="note">Pensionsmyndigheten, beräknad ' + esc(state.perf.calculated) + "</span></div>" +
       '<dl class="figures">' + fig(esc(y[0]) + " hittills", retText(p[0])) + fig(esc(y[1]), retText(p[1])) + fig(esc(y[2]), retText(p[2])) +
-      fig("Snitt per år, 5 år", retText(p[3])) + fig("Risk", p[5] == null ? "–" : nf0.format(p[5]) + " %", "standardavvikelse, 36 mån") + "</dl>" +
+      fig("Per år, 5 år", retText(p[3]), "genomsnitt (CAGR)") + fig("Totalt, 5 år", retApprox(total5(p)), "uträknat ur snittet") + fig("Risk", p[5] == null ? "–" : nf0.format(p[5]) + " %", "standardavvikelse, 36 mån") + "</dl>" +
       '<p class="desc">Avkastning efter fondens avgifter enligt premiepensionens fondtorg (' + esc(p[6]) + "). I premiepensionen är avgiften rabatterad till " +
       (p[4] == null ? "–" : nf2.format(p[4]) + " %") + ", utanför gäller fondens ordinarie avgift.</p></section>";
   }

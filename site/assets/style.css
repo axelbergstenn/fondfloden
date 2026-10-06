@@ -767,14 +767,6 @@ body[data-page="oversikt"] .summary { display: none; }
 }
 
 /* Importera portfölj från banken */
-.pf-import { margin-top: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; }
-.pf-import summary { font-weight: 650; cursor: pointer; }
-.pf-import[open] summary { margin-bottom: 8px; }
-.pf-import .desc { font-size: 14px; margin-bottom: 12px; max-width: 75ch; }
-.pf-import-row { margin-bottom: 10px; }
-.pf-import label.btn { cursor: pointer; }
-.pf-paste { display: block; width: 100%; max-width: none; height: auto; min-height: 84px; padding: 10px 12px; margin-bottom: 8px; font-family: var(--mono); font-size: 13px; resize: vertical; }
-.pf-import-msg { margin-top: 10px; font-size: 14px; color: var(--fg-soft); }
 
 /* Bevakning via mejl på aktiesidan */
 .alert-box { margin: 0 0 20px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 18px; }
@@ -785,3 +777,15 @@ body[data-page="oversikt"] .summary { display: none; }
 /* Textsidor (Data och API): tabellerna innehåller text, inte siffror */
 .text-page th, .text-page td { text-align: left; white-space: normal; }
 .text-page code { font-family: var(--mono); font-size: 13px; background: var(--chip-bg); padding: 1px 6px; border-radius: 6px; }
+
+/* Flikar (fondsidan: innehav och alla affärer) */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+.tab { font: inherit; font-size: 15px; font-weight: 550; color: var(--fg-muted); background: none; border: 0; padding: 10px 14px; cursor: pointer; position: relative; }
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { color: var(--fg); font-weight: 650; }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: var(--brand); }
+
+/* Visa alla rader */
+.more-rows { display: block; width: 100%; margin-top: 8px; font: inherit; font-size: 14px; font-weight: 600; color: var(--link); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px; cursor: pointer; }
+.more-rows:hover { background: var(--bg-hover); }
+.mgr .more { margin-top: 0; }

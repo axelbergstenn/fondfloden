@@ -45,7 +45,7 @@ function Save($rel, $text) {
   [System.IO.File]::WriteAllText($path, $text, $Utf8)
 }
 function Esc($s) { ([string]$s).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;") }
-function J($s) { '"' + ([string]$s).Replace('\', '\\').Replace('"', '\"') + '"' }
+function J($s) { '"' + (([string]$s) -replace '[\x00-\x1f]+', ' ').Replace('\', '\\').Replace('"', '\"') + '"' }
 function Num($x) { if ($null -eq $x) { return $null }; return [double]$x }
 
 # "Atlas Copco AB ser. A" -> "atlas-copco-ab-ser-a"
@@ -276,7 +276,7 @@ function FundUrl($id) { $fi = $infoById[$id]; if ($fi) { return "/fond/$($fi.slu
 function CoUrl($co) { if ($companies.ContainsKey($co)) { return "/fondbolag/$($companies[$co].slug)/" }; return "/#/fondbolag/" + [uri]::EscapeDataString($co) }
 
 # Gamla sidor tas bort så att aktier och fonder som försvunnit inte ligger kvar
-foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist", "data/csv", "oppen-data")) {
+foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist", "data/csv", "oppen-data", "data/insyn")) {
   $p = Join-Path $Site $dir
   if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
@@ -420,6 +420,43 @@ if ($hist) {
   }
 }
 Write-Host "  små datafiler: $($allIds.Count) fonder, $($profiles.Count) fondprofiler, $($wF2.Count) utländska aktier"
+
+# ---------- Insynsarkivet: en fil per aktie och en sammanställning för tolv månader ----------
+# site/data/insyn-arkiv/ fylls på av scripts/build-insider.ps1. Här delas det upp så att aktiesidan bara hämtar sin aktie.
+$archDir = Join-Path $DataDir "insyn-arkiv"
+if (Test-Path $archDir) {
+  $byIsin = @{}
+  $yearRows = New-Object System.Collections.Generic.List[string]
+  $since = (Get-Date).Date.AddDays(-365).ToString("yyyy-MM-dd")
+  $rx = [regex]'^\["[^"]*","([^"]*)","(?:[^"\\]|\\.)*","([^"]*)"'
+  foreach ($file in (Get-ChildItem $archDir -Filter *.json | Sort-Object Name -Descending)) {
+    foreach ($line in [System.IO.File]::ReadAllLines($file.FullName, [System.Text.Encoding]::UTF8)) {
+      if (-not $line.StartsWith('["')) { continue }
+      $row = $line.TrimEnd(",")
+      $m = $rx.Match($row)
+      if (-not $m.Success) { continue }
+      $isin = $m.Groups[2].Value
+      if (-not $isin) { continue }
+      if (-not $byIsin.ContainsKey($isin)) { $byIsin[$isin] = New-Object System.Collections.Generic.List[string] }
+      $byIsin[$isin].Add($row)
+      if ($m.Groups[1].Value -ge $since) { $yearRows.Add($row) }
+    }
+  }
+  foreach ($isin in $byIsin.Keys) { Save "data/insyn/$isin.json" ('{"rows":[' + ($byIsin[$isin] -join ",") + "]}") }
+  # Köp, sälj och antal köpare per aktie de senaste tolv månaderna
+  $agg = @{}
+  if ($yearRows.Count) {
+    foreach ($r in ("[" + ($yearRows -join ",") + "]" | ConvertFrom-Json)) {
+      if ($null -eq $r[11] -or ($r[7] -ne "Förvärv" -and $r[7] -ne "Avyttring")) { continue }
+      $k = [string]$r[3]
+      if (-not $agg.ContainsKey($k)) { $agg[$k] = @{ name = [string]$r[2]; buy = 0.0; sell = 0.0; buyers = @{} } }
+      if ($r[7] -eq "Förvärv") { $agg[$k].buy += [double]$r[11]; $agg[$k].buyers[[string]$r[4]] = 1 } else { $agg[$k].sell += [double]$r[11] }
+    }
+  }
+  $yr = foreach ($k in $agg.Keys) { "[" + (J $k) + "," + (J $agg[$k].name) + "," + [math]::Round($agg[$k].buy).ToString($Inv) + "," + [math]::Round($agg[$k].sell).ToString($Inv) + "," + $agg[$k].buyers.Count + "]" }
+  Save "data/insider-year.json" ('{"from":' + (J $since) + ',"rows":[' + (@($yr) -join ",") + "]}")
+  Write-Host "  insynsarkiv: $($byIsin.Count) aktier, $($yearRows.Count) affärer senaste året"
+}
 
 # ---------- Delningsbilder ----------
 
@@ -1134,7 +1171,7 @@ $srcRows = NewList
 $srcRows.Add(@("Fondernas innehav", (A "https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" "Finansinspektionen, fondinnehav per kvartal"), "Varje kvartal, ungefär tolv veckor efter kvartalsslut", "$QL (innehav $asOf)"))
 $srcRows.Add(@("Avgifter och risk", "Samma kvartalsrapporter till FI", "Varje kvartal", $QL))
 $srcRows.Add(@("Blankning", (A "https://www.fi.se/sv/vara-register/blankningsregistret/" "Finansinspektionen, blankningsregistret"), "Varje dag", "Hämtas varje morgon"))
-$srcRows.Add(@("Insynshandel", (A "https://marknadssok.fi.se/publiceringsklient" "Finansinspektionen, insynsregistret"), "Varje dag, senaste 90 dagarna", "Hämtas varje morgon"))
+$srcRows.Add(@("Insynshandel", (A "https://marknadssok.fi.se/publiceringsklient" "Finansinspektionen, insynsregistret"), "Varje dag, arkiv sedan 2019", "Hämtas varje morgon"))
 $srcRows.Add(@("Uppköpserbjudanden", (A "https://www.fi.se/sv/vara-register/prospektregistret/" "Finansinspektionen, prospektregistret"), "Varje dag", "Hämtas varje morgon"))
 $srcRows.Add(@("Avkastning", (A "https://www.pensionsmyndigheten.se/" "Pensionsmyndighetens fonddata"), "Varje vecka", "Fonder på premiepensionens fondtorg"))
 

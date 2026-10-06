@@ -9,8 +9,14 @@ site/fond/
 site/fondbolag/
 site/aktier/
 site/fonder/
+site/ordlista/
+site/rapport/
 site/og/
 site/404.html
 site/sitemap.xml
 site/robots.txt
 site/data/pages.json
+site/data/profiles.json
+site/data/search.json
+site/data/fund/
+site/data/hist/

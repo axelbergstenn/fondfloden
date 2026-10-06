@@ -1,0 +1,32 @@
+{
+  "terms": [
+    ["nettokop", "Nettoköp", "Hur mycket fonderna köpt minus sålt av en aktie under kvartalet. Fondinsyn räknar förändringen i antal aktier gånger kursen vid kvartalets slut, så att kursrörelser inte påverkar siffran. Bara fonder som rapporterat båda kvartalen räknas."],
+    ["aktiv-risk", "Aktiv risk", "Mäter hur mycket fondens avkastning har avvikit från jämförelseindex de senaste 24 månaderna (kallas även tracking error). En indexfond ligger nära 0 %. Ju högre aktiv risk, desto mer skiljer sig fonden från index."],
+    ["indexnara", "Indexnära fond", "En aktiv fond som i praktiken följer sitt jämförelseindex nära. Fondinsyn markerar aktiefonder med aktiv risk under 3 % och en avgift på minst 0,7 %, eftersom sparare då betalar för aktiv förvaltning men får något som liknar en indexfond."],
+    ["indexfond", "Indexfond", "En fond som följer ett index i stället för att förvaltaren väljer aktier. Har oftast låg avgift. Fondinsyn känner igen indexfonder på namnet."],
+    ["avgift", "Förvaltningsavgift", "Den årliga avgift fondbolaget tar ut, i procent av ditt sparande. Fondinsyn visar den högsta fasta avgiften bland fondens andelsklasser, vilket oftast är den privatpersoner betalar. Prestationsbaserade avgifter ingår inte."],
+    ["standardavvikelse", "Standardavvikelse", "Mäter hur mycket fondens värde har svängt de senaste 24 månaderna. Högre siffra betyder större svängningar, det vill säga högre risk."],
+    ["fondformogenhet", "Fondförmögenhet", "Det totala värdet av allt fonden äger, det vill säga hur mycket pengar som förvaltas i fonden."],
+    ["kopsvit", "Köpsvit", "Antal kvartal i rad som fonderna sammantaget har nettoköpt (eller nettosålt) en aktie. Kvartal med nettoköp under 0,5 mkr räknas inte."],
+    ["sektorrotation", "Sektorrotation", "När fonderna flyttar pengar från en bransch till en annan, till exempel säljer fastigheter och köper industri. Fondinsyn summerar fondernas nettoköp per sektor och kvartal."],
+    ["overlapp", "Överlapp", "Hur stor del av två fonders aktieinnehav som är gemensamt. Räknas som summan av den lägsta vikten för varje aktie som båda fonderna äger. 100 % betyder exakt samma innehav."],
+    ["blankning", "Blankning", "Att låna aktier och sälja dem, för att köpa tillbaka dem billigare senare. Den som blankar tjänar alltså på att aktien sjunker. Kallas även att ta en kort position."],
+    ["kort-position", "Kort nettoposition", "Hur stor andel av ett bolags aktier som en investerare har blankat, efter avdrag för aktier den äger. Positioner på minst 0,1 % ska rapporteras till Finansinspektionen, och från 0,5 % publiceras innehavarens namn."],
+    ["uppkopserbjudande", "Uppköpserbjudande", "Ett erbjudande till alla aktieägare i ett börsnoterat bolag att sälja sina aktier, oftast för att köpa hela bolaget. Erbjudandehandlingen granskas och godkänns av Finansinspektionen."],
+    ["budpremie", "Budpremie", "Hur mycket högre budpriset är än aktiekursen innan budet blev känt, oftast jämfört med stängningskursen dagen före."],
+    ["split", "Aktiesplit", "När ett bolag delar upp sina aktier i fler, till exempel en gammal aktie blir tio nya. Värdet ändras inte. Fondinsyn justerar för splittar så att de inte ser ut som köp."],
+    ["isin", "ISIN", "En internationell kod som identifierar ett värdepapper, till exempel SE0000106270 för H&M B. Svenska aktier börjar med SE."],
+    ["aktiv-andel", "Aktiv andel", "Hur stor del av fondens innehav som skiljer sig från index, mellan 0 % (exakt som index) och 100 % (inga gemensamma aktier). Fondinsyn jämför med indexfondernas sammanlagda innehav, svenska för Sverigefonder och globala för globala fonder. Under cirka 60 % brukar ses som indexnära. Bara fonder med minst 80 % i antingen svenska eller utländska aktier mäts."],
+    ["avkastning", "Avkastning", "Hur mycket fondens värde har ökat eller minskat, efter fondens avgifter. Fondinsyn visar avkastning från Pensionsmyndighetens öppna data för fonderna på premiepensionens fondtorg: per kalenderår och som snitt per år för fem år. Fonder som inte finns på fondtorget saknar avkastning. Historisk avkastning är ingen garanti för framtida avkastning."],
+    ["koncentration", "Koncentration", "Hur stor andel av fondens aktieinnehav som ligger i de tio största innehaven. En hög andel betyder att fonden satsar mycket på några få bolag."],
+    ["kvartalsrapport", "Kvartalsrapportering", "Svenska fondbolag rapporterar varje kvartal alla sina fonders innehav till Finansinspektionen. Uppgifterna publiceras ungefär sex veckor efter kvartalets slut."]
+  ],
+  "faq": [
+    ["Hur ofta uppdateras Fondinsyn?", "Varje dag hämtas ny blankningsdata och nya uppköpserbjudanden. Fondernas innehav uppdateras när Finansinspektionen publicerar ett nytt kvartal, ungefär sex veckor efter kvartalsslut."],
+    ["Varför hittar jag inte min fond?", "Fondinsyn visar fonder som är registrerade i Sverige. Fonder som är registrerade i till exempel Luxemburg eller Irland, liksom många ETF:er, rapporterar inte till Finansinspektionen och finns därför inte med."],
+    ["Varför skiljer sig siffrorna från fondbolagets egna?", "Uppgifterna avser kvartalets sista dag, och fonden kan ha handlat mycket sedan dess. Fondinsyn räknar också nettoköp på ett eget sätt, med kursen vid kvartalsslut."],
+    ["Betyder det att en aktie är bra om fonderna köper den?", "Nej. Fondernas affärer kan bero på in- och utflöden av pengar, regler om hur mycket de får äga eller förvaltarens egna bedömningar. Se det som ett sätt att förstå marknaden, inte som ett köpråd."],
+    ["Varför blankar fonder?", "Det är främst hedgefonder som blankar, antingen för att de tror att aktien ska falla eller för att skydda andra positioner. Vanliga svenska aktiefonder får i regel inte blanka."],
+    ["Är Fondinsyn investeringsrådgivning?", "Nej. Fondinsyn sammanställer offentlig data från Finansinspektionen. Fatta egna beslut och läs fondens faktablad innan du investerar."]
+  ]
+}

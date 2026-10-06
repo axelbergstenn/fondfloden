@@ -29,6 +29,12 @@ $MINUS = [string][char]0x2212
 $MONTHS = @("januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december")
 $FONT = "Inter, 'Inter Variable', 'DejaVu Sans', Arial, sans-serif"
 
+# Samma regler som i app.js
+$INDEX_RE = '(?i)index|indx|\bomx|passiv|tracker|\betf\b|\bzero\b|\baccess\b'
+$MIXED_RE = '(?i)balanser|generation|stratega|\bmix|fokus \d|pension|flex|ränt|obligation|allokering|försiktig|offensiv \d'
+$CLOSET_AR = 3
+$CLOSET_FEE = 0.7
+
 # ---------- Hjälpfunktioner ----------
 
 function ReadJson($name) { [System.IO.File]::ReadAllText((Join-Path $DataDir $name), [System.Text.Encoding]::UTF8) | ConvertFrom-Json }
@@ -140,63 +146,70 @@ $qMeta = $index.quarters[0]
 $Q = [string]$qMeta.id
 $QL = QLabel $Q
 $asOf = DateText $qMeta.curr
-$raw = ReadJson "$Q.json"
-Write-Host "Sidor: bygger från $QL"
+# Läser ett kvartal och räknar som compute() i app.js (utan att exkludera indexfonder)
+function LoadQuarter($qid) {
+  $raw = ReadJson "$qid.json"
 
-$stocks = NewList
-foreach ($x in $raw.stocks) {
-  $stocks.Add([pscustomobject]@{
-      isin = [string]$x[0]; name = (Pretty $x[1]); sector = $(if ($x[2]) { [string]$x[2] } else { "Övrigt" })
-      price = $(if ($x[3]) { [double]$x[3] } else { 0.0 })
-      h2 = 0.0; f2 = 0; h1b = 0.0; h2b = 0.0; flow = 0.0; nNew = 0; nExit = 0; val2 = 0.0; chg = $null
-      isNew = $false; isGone = $false; netFlow = $null; slug = $null
-      holders = (NewList); trades = (NewList)
-    })
-}
-
-$funds = NewList
-$fundById = @{}
-foreach ($x in $raw.funds) {
-  $f = [pscustomobject]@{
-    id = [string]$x[0]; name = [string]$x[1]; co = [string]$x[2]; aum2 = $x[5]; h = $x[6]
-    both = ($null -ne $x[4] -and $null -ne $x[5]); val = 0.0; nHold = 0; rows = (NewList)
+  $stocks = NewList
+  foreach ($x in $raw.stocks) {
+    $stocks.Add([pscustomobject]@{
+        isin = [string]$x[0]; name = (Pretty $x[1]); sector = $(if ($x[2]) { [string]$x[2] } else { "Övrigt" })
+        price = $(if ($x[3]) { [double]$x[3] } else { 0.0 })
+        h2 = 0.0; f2 = 0; h1b = 0.0; h2b = 0.0; flow = 0.0; nNew = 0; nExit = 0; val2 = 0.0; chg = $null
+        isNew = $false; isGone = $false; netFlow = $null; slug = $null; split = $x[4]
+        holders = (NewList); trades = (NewList)
+      })
   }
-  $funds.Add($f)
-  $fundById[$f.id] = $f
-}
 
-# Samma uträkning som compute() i app.js (utan att exkludera indexfonder)
-foreach ($f in $funds) {
-  $has2 = $null -ne $f.aum2
-  foreach ($r in $f.h) {
-    $s = $stocks[[int]$r[0]]
-    $s1 = if ($r[1]) { [double]$r[1] } else { 0.0 }
-    $s2 = if ($r[2]) { [double]$r[2] } else { 0.0 }
-    $d = ($s2 - $s1) * $s.price
-    $f.rows.Add([pscustomobject]@{ s = $s; s1 = $s1; s2 = $s2; v = $s2 * $s.price; d = $d })
-    if ($s2 -and $has2) {
-      $f.val += $s2 * $s.price; $f.nHold++
-      $s.h2 += $s2; $s.f2++
-      $s.holders.Add([pscustomobject]@{ f = $f; v = $s2 * $s.price; s1 = $s1; s2 = $s2 })
+  $funds = NewList
+  $fundById = @{}
+  foreach ($x in $raw.funds) {
+    $f = [pscustomobject]@{
+      id = [string]$x[0]; name = [string]$x[1]; co = [string]$x[2]; aum2 = $x[5]; h = $x[6]
+      both = ($null -ne $x[4] -and $null -ne $x[5]); val = 0.0; nHold = 0; rows = (NewList)
     }
-    if (-not $f.both) { continue }
-    $s.h1b += $s1; $s.h2b += $s2; $s.flow += $d
-    if (-not $s1 -and $s2) { $s.nNew++ }
-    if ($s1 -and -not $s2) { $s.nExit++ }
-    if ($s1 -ne $s2) { $s.trades.Add([pscustomobject]@{ f = $f; d = $d; s1 = $s1; s2 = $s2 }) }
+    $funds.Add($f)
+    $fundById[$f.id] = $f
   }
+
+  foreach ($f in $funds) {
+    $has2 = $null -ne $f.aum2
+    foreach ($r in $f.h) {
+      $s = $stocks[[int]$r[0]]
+      $s1 = if ($r[1]) { [double]$r[1] } else { 0.0 }
+      $s2 = if ($r[2]) { [double]$r[2] } else { 0.0 }
+      $d = ($s2 - $s1) * $s.price
+      $f.rows.Add([pscustomobject]@{ s = $s; s1 = $s1; s2 = $s2; v = $s2 * $s.price; d = $d })
+      if ($s2 -and $has2) {
+        $f.val += $s2 * $s.price; $f.nHold++
+        $s.h2 += $s2; $s.f2++
+        $s.holders.Add([pscustomobject]@{ f = $f; v = $s2 * $s.price; s1 = $s1; s2 = $s2 })
+      }
+      if (-not $f.both) { continue }
+      $s.h1b += $s1; $s.h2b += $s2; $s.flow += $d
+      if (-not $s1 -and $s2) { $s.nNew++ }
+      if ($s1 -and -not $s2) { $s.nExit++ }
+      if ($s1 -ne $s2) { $s.trades.Add([pscustomobject]@{ f = $f; d = $d; s1 = $s1; s2 = $s2 }) }
+    }
+  }
+  $tFunds = @($funds | Where-Object { $_.both }).Count
+  $tHeld = 0; $tValue = 0.0; $tNet = 0.0
+  foreach ($s in $stocks) {
+    $s.val2 = $s.h2 * $s.price
+    if ($s.h1b) { $s.chg = ($s.h2b - $s.h1b) / $s.h1b }
+    $s.isNew = $s.h1b -eq 0 -and $s.h2b -gt 0
+    $s.isGone = $s.h2b -eq 0 -and $s.h1b -gt 0
+    if (-not ($s.isNew -or $s.isGone)) { $s.netFlow = $s.flow; $tNet += $s.flow }
+    if ($s.f2) { $tHeld++ }
+    $tValue += $s.val2
+  }
+  return [pscustomobject]@{ raw = $raw; meta = $raw.meta; stocks = $stocks; funds = $funds; fundById = $fundById; tFunds = $tFunds; tHeld = $tHeld; tValue = $tValue; tNet = $tNet }
 }
-$tFunds = @($funds | Where-Object { $_.both }).Count
-$tHeld = 0; $tValue = 0.0; $tNet = 0.0
-foreach ($s in $stocks) {
-  $s.val2 = $s.h2 * $s.price
-  if ($s.h1b) { $s.chg = ($s.h2b - $s.h1b) / $s.h1b }
-  $s.isNew = $s.h1b -eq 0 -and $s.h2b -gt 0
-  $s.isGone = $s.h2b -eq 0 -and $s.h1b -gt 0
-  if (-not ($s.isNew -or $s.isGone)) { $s.netFlow = $s.flow; $tNet += $s.flow }
-  if ($s.f2) { $tHeld++ }
-  $tValue += $s.val2
-}
+
+Write-Host "Sidor: bygger från $QL"
+$cur = LoadQuarter $Q
+$raw = $cur.raw; $stocks = $cur.stocks; $funds = $cur.funds; $fundById = $cur.fundById
+$tFunds = $cur.tFunds; $tHeld = $cur.tHeld; $tValue = $cur.tValue; $tNet = $cur.tNet
 
 $infos = NewList
 $infoById = @{}
@@ -204,6 +217,7 @@ foreach ($x in $raw.fundInfo) {
   $fi = [pscustomobject]@{
     id = [string]$x[0]; name = [string]$x[1]; co = [string]$x[2]; bench = [string]$x[3]; aum = (Num $x[4])
     feeMin = (Num $x[5]); feeMax = (Num $x[6]); ar = (Num $x[8]); sd = (Num $x[9]); slug = $null; m = $fundById[[string]$x[0]]
+    eq = (Num $x[10]); isIndex = ([string]$x[1] -match $INDEX_RE)
   }
   $infos.Add($fi)
   $infoById[$fi.id] = $fi
@@ -260,10 +274,150 @@ function FundUrl($id) { $fi = $infoById[$id]; if ($fi) { return "/fond/$($fi.slu
 function CoUrl($co) { if ($companies.ContainsKey($co)) { return "/fondbolag/$($companies[$co].slug)/" }; return "/#/fondbolag/" + [uri]::EscapeDataString($co) }
 
 # Gamla sidor tas bort så att aktier och fonder som försvunnit inte ligger kvar
-foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "og")) {
+foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist")) {
   $p = Join-Path $Site $dir
   if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
+
+# ---------- Små datafiler för appen ----------
+# En fond- eller aktiesida hämtar bara det den behöver i stället för de stora filerna (se fundWorld,
+# needStockHistory, needProfiles och needSearchNames i app.js):
+#   data/fund/<id>.json    fondens utländska innehav
+#   data/hist/<isin>.json  historiken för en svensk aktie
+#   data/profiles.json     aktiv andel, tio största och antal aktier per fond
+#   data/search.json       utländska aktier att söka bland
+
+# JSON utan ConvertTo-Json, som i Windows PowerShell 5.1 gör om listor till objekt
+function JVal($v) {
+  if ($null -eq $v) { return "null" }
+  if ($v -is [string]) { return J $v }
+  if ($v -is [bool]) { if ($v) { return "true" }; return "false" }
+  if ($v -is [System.Collections.IList]) {
+    $parts = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($x in $v) { $parts.Add((JVal $x)) }
+    return "[" + [string]::Join(",", $parts) + "]"
+  }
+  if ($v -is [int] -or $v -is [long]) { return $v.ToString($Inv) }
+  return ([double]$v).ToString("R", $Inv)
+}
+
+$rawW = $null
+try { $rawW = ReadJson "$Q-world.json" } catch { Write-Host "  ingen utlandsdata: $($_.Exception.Message)" }
+
+# Alla aktieinnehav per fond med värde i kronor, som fundPositions() i app.js
+$pos = @{}
+function AddPos($id, $isin, $v) {
+  if (-not $pos.ContainsKey($id)) { $pos[$id] = New-Object System.Collections.Generic.List[object] }
+  $pos[$id].Add(@([string]$isin, [double]$v))
+}
+foreach ($f in $funds) {
+  if ($null -eq $f.aum2) { continue }
+  foreach ($r in $f.rows) { if ($r.s2 -and $r.s.price) { AddPos $f.id $r.s.isin $r.v } }
+}
+
+$fundFiles = @{}; $wF2 = @{}; $wH2 = @{}
+if ($rawW) {
+  $wStocks = $rawW.stocks
+  foreach ($x in $rawW.funds) {
+    $id = [string]$x[0]; $has2 = $null -ne $x[5]
+    $idx = @{}
+    $sub = New-Object System.Collections.Generic.List[object]
+    $h = New-Object System.Collections.Generic.List[object]
+    foreach ($r in $x[6]) {
+      $i = [int]$r[0]; $st = $wStocks[$i]
+      if (-not $idx.ContainsKey($i)) { $idx[$i] = $sub.Count; $sub.Add($st) }
+      $h.Add(@($idx[$i], $r[1], $r[2]))
+      $s2 = if ($r[2]) { [double]$r[2] } else { 0.0 }
+      if ($s2 -and $has2) {
+        if (-not $wF2.ContainsKey($i)) { $wF2[$i] = 0; $wH2[$i] = 0.0 }
+        $wF2[$i] = $wF2[$i] + 1; $wH2[$i] = $wH2[$i] + $s2
+        if ($st[3]) { AddPos $id $st[0] ($s2 * [double]$st[3]) }
+      }
+    }
+    $fundFiles[$id] = '{"q":' + (J $Q) + ',"stocks":' + (JVal $sub) + ',"funds":[' + (JVal @($x[0], $x[1], $x[2], $x[3], $x[4], $x[5], $h)) + "]}"
+  }
+}
+
+$allIds = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($fi in $infos) { [void]$allIds.Add($fi.id) }
+foreach ($f in $funds) { [void]$allIds.Add($f.id) }
+foreach ($k in $fundFiles.Keys) { [void]$allIds.Add($k) }
+if ($rawW) {
+  $empty = '{"q":' + (J $Q) + ',"stocks":[],"funds":[]}'
+  foreach ($id in $allIds) { Save "data/fund/$id.json" $(if ($fundFiles.ContainsKey($id)) { $fundFiles[$id] } else { $empty }) }
+}
+
+# Vikter per fond och region (minst 80 % svenska eller utländska aktier), som stockWeights() och regionOf()
+$wts = @{}
+foreach ($id in @($pos.Keys)) {
+  $w = @{}; $tot = 0.0; $seV = 0.0
+  foreach ($o in $pos[$id]) { $tot += $o[1]; if ($o[0].StartsWith("SE")) { $seV += $o[1] } }
+  $div = if ($tot) { $tot } else { 1.0 }
+  foreach ($o in $pos[$id]) { $w[$o[0]] = [double]$w[$o[0]] + $o[1] / $div }
+  $region = $null
+  if ($tot) { $share = $seV / $tot; if ($share -ge 0.8) { $region = "se" } elseif ($share -le 0.2) { $region = "world" } }
+  $wts[$id] = @{ w = $w; n = $pos[$id].Count; region = $region }
+}
+
+# Index = indexfondernas sammanlagda innehav viktat efter storlek, som indexProxy()
+$proxy = @{}; $proxyTot = @{}
+foreach ($reg in @("se", "world")) {
+  $sum = @{}; $tot = 0.0
+  foreach ($fi in $infos) {
+    if (-not $fi.isIndex -or -not $fi.aum -or -not $wts.ContainsKey($fi.id) -or $wts[$fi.id].region -ne $reg) { continue }
+    $fw = $wts[$fi.id].w
+    foreach ($k in $fw.Keys) { $sum[$k] = [double]$sum[$k] + $fw[$k] * $fi.aum }
+    $tot += $fi.aum
+  }
+  if ($tot) {
+    $t2 = 0.0
+    foreach ($k in @($sum.Keys)) { $sum[$k] = $sum[$k] / $tot; $t2 += $sum[$k] }
+    $proxy[$reg] = $sum; $proxyTot[$reg] = $t2
+  }
+}
+
+# Aktiv andel = halva summan av viktskillnaderna mot index, som fundProfile()
+$profiles = @{}
+foreach ($id in $allIds) {
+  if (-not $wts.ContainsKey($id)) { continue }
+  $x = $wts[$id]
+  $ws = @($x.w.Values | Sort-Object -Descending)
+  if (-not $ws.Count) { continue }
+  $top10 = 0.0
+  for ($i = 0; $i -lt [math]::Min(10, $ws.Count); $i++) { $top10 += $ws[$i] }
+  $active = $null
+  $px = if ($x.region) { $proxy[$x.region] } else { $null }
+  $fi = $infoById[$id]
+  if ($px -and -not ($fi -and $fi.isIndex)) {
+    $diff = 0.0; $pIn = 0.0
+    foreach ($k in $x.w.Keys) { $pv = [double]$px[$k]; $diff += [math]::Abs($x.w[$k] - $pv); $pIn += $pv }
+    $active = ($diff + $proxyTot[$x.region] - $pIn) / 2
+  }
+  $profiles[$id] = @($active, $top10, $x.n, $x.region)
+}
+if ($rawW) {
+  $pp = foreach ($id in $profiles.Keys) {
+    $p = $profiles[$id]
+    (J $id) + ":" + (JVal @($(if ($null -ne $p[0]) { [math]::Round($p[0], 5) } else { $null }), [math]::Round($p[1], 5), $p[2], $p[3]))
+  }
+  Save "data/profiles.json" ('{"q":' + (J $Q) + ',"p":{' + (@($pp) -join ",") + "}}")
+
+  $names = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($i in $wF2.Keys) {
+    $st = $wStocks[$i]
+    $price = if ($st[3]) { [double]$st[3] } else { 0.0 }
+    $names.Add((JVal @($st[0], $st[1], $st[2], $st[5], $wF2[$i], [math]::Round($wH2[$i] * $price))))
+  }
+  Save "data/search.json" ('{"q":' + (J $Q) + ',"stocks":[' + [string]::Join(",", $names) + "]}")
+}
+
+if ($hist) {
+  $qs = JVal @($hist.quarters)
+  foreach ($prop in $hist.stocks.PSObject.Properties) {
+    Save "data/hist/$($prop.Name).json" ('{"quarters":' + $qs + ',"s":' + (JVal $prop.Value) + "}")
+  }
+}
+Write-Host "  små datafiler: $($allIds.Count) fonder, $($profiles.Count) fondprofiler, $($wF2.Count) utländska aktier"
 
 # ---------- Delningsbilder ----------
 
@@ -372,7 +526,7 @@ function LdScripts($crumbs, $extra) {
 }
 
 # $rel: "aktie/volvo-b/" (sparas som index.html) eller ett filnamn som "404.html"
-function Page($rel, $route, $title, $desc, $image, $content, $Crumbs, $Ld, [switch]$NoIndex) {
+function Page($rel, $route, $title, $desc, $image, $content, $Crumbs, $Ld, [switch]$NoIndex, [switch]$Keep) {
   $url = $BaseUrl + "/" + $(if ($rel.EndsWith("/")) { $rel } else { "" })
   $head = $tag.charset + "`n  <base href=`"/`">" + $(if ($NoIndex) { "`n  <meta name=`"robots`" content=`"noindex`">" } else { "" })
   $t = $template.Replace($tag.charset, $head)
@@ -383,7 +537,7 @@ function Page($rel, $route, $title, $desc, $image, $content, $Crumbs, $Ld, [swit
   $t = $t.Replace($tag.ogUrl, '<meta property="og:url" content="' + (Esc $url) + '">')
   $t = $t.Replace($tag.ogImage, '<meta property="og:image" content="' + (Esc ($BaseUrl + "/" + $image)) + '">')
   $t = $t.Replace($tag.canon, '<link rel="canonical" href="' + (Esc $url) + '">')
-  if ($route) { $t = $t.Replace($tag.body, '<body data-route="' + (Esc $route) + '">') }
+  if ($route) { $t = $t.Replace($tag.body, '<body data-route="' + (Esc $route) + '"' + $(if ($Keep) { " data-keep" } else { "" }) + '>') }
   $t = $t.Replace($tag.main, '<main id="app" class="container" tabindex="-1">' + $content + "</main>")
   $ldHtml = LdScripts $Crumbs $Ld
   if ($ldHtml) { $t = $t.Replace("</head>", "  " + $ldHtml + "`n</head>") }
@@ -563,8 +717,272 @@ Page "fondbolag/" "fondbolag" "Fondbolag – fonder, avgifter och innehav | Fond
   '<p class="lead">Fondbolagen bakom de svenska värdepappersfonderna. Snittavgiften är viktad efter fondernas storlek.</p>' +
   (Table @("Fondbolag", "Fonder", "Förmögenhet", "Snittavgift") $rows))
 
+# ---------- Kategorier och köpsviter (samma regler som i app.js) ----------
+
+function Category($fi) {
+  if ($fi.isIndex) { return "index" }
+  if ($null -eq $fi.eq -or $fi.eq -lt 0.8 -or $fi.name -match $MIXED_RE) { return "other" }
+  if ($fi.ar -eq 0) { return "other" } # 0,0 betyder i praktiken att uppgiften saknas
+  if ($null -ne $fi.ar -and $fi.ar -lt $CLOSET_AR -and $null -ne $fi.feeMax -and $fi.feeMax -ge $CLOSET_FEE) { return "closet" }
+  return "active"
+}
+function InfoObj($x) {
+  return [pscustomobject]@{ id = [string]$x[0]; name = [string]$x[1]; co = [string]$x[2]; aum = (Num $x[4]); feeMin = (Num $x[5]); feeMax = (Num $x[6])
+    ar = (Num $x[8]); sd = (Num $x[9]); eq = (Num $x[10]); isIndex = ([string]$x[1] -match $INDEX_RE) }
+}
+# Antal kvartal i rad med nettoköp (eller nettosälj) fram till kvartal $qi, som streak() i app.js
+function Streak($isin, $qi) {
+  if (-not $hist) { return $null }
+  $e = $hist.stocks.$isin
+  if (-not $e) { return $null }
+  $byQ = @{}
+  foreach ($r in $e[3]) { $byQ[[int]$r[0]] = $r }
+  $first = if ($byQ[$qi]) { $byQ[$qi][3] } else { $null }
+  if ($null -eq $first -or [math]::Abs($first) -lt 0.5) { return $null }
+  $sign = if ($first -gt 0) { 1 } else { -1 }
+  $n = 0; $sum = 0.0
+  for ($k = $qi; $k -ge 0; $k--) {
+    $v = if ($byQ[$k]) { $byQ[$k][3] } else { $null }
+    if ($null -eq $v -or [math]::Abs($v) -lt 0.5 -or $(if ($v -gt 0) { 1 } else { -1 }) -ne $sign) { break }
+    $n++; $sum += $v
+  }
+  return [pscustomobject]@{ n = $n; sign = $sign; sum = $sum }
+}
+function StreakList($stockList, $qi, $sign) {
+  $out = @()
+  foreach ($s in $stockList) {
+    if ($s.val2 -lt 100e6 -or $s.isNew -or $s.isGone) { continue }
+    $st = Streak $s.isin $qi
+    if ($st -and $st.sign -eq $sign -and $st.n -ge 2) { $out += [pscustomobject]@{ s = $s; n = $st.n; sum = $st.sum } }
+  }
+  return @($out | Sort-Object @{ Expression = "n"; Descending = $true }, @{ Expression = { [math]::Abs($_.sum) }; Descending = $true })
+}
+function LcWord($s) { if ($s -ceq $s.ToUpperInvariant()) { return $s }; return $s.ToLowerInvariant() }
+$slugByIsin = @{}
+foreach ($s in $pageStocks) { $slugByIsin[$s.isin] = $s.slug }
+function IsinUrl($isin) { if ($slugByIsin.ContainsKey($isin)) { return "/aktie/$($slugByIsin[$isin])/" }; return "/#/aktie/$isin" }
+
+# ---------- Ordlista ----------
+# En sida per begrepp med förklaringen och, där det går, aktuella exempel ur datan. Sidorna behåller sitt
+# innehåll när appen startar (data-keep), eftersom exemplen inte finns i appens ordlista.
+
+$gl = $null
+try { $gl = ReadJson "glossary.json" } catch { Write-Host "  ingen ordlista: $($_.Exception.Message)" }
+$perf = $null
+try { $perf = ReadJson "perf.json" } catch { }
+
+$eqFunds = @($infos | Where-Object { (Category $_) -ne "other" })
+$activeFunds = @($infos | Where-Object { $c = Category $_; ($c -eq "active" -or $c -eq "closet") -and $_.aum -ge 500e6 })
+function FundTable($list, $heads, $cells) {
+  $rows = NewList
+  foreach ($fi in $list) { $rows.Add(@(@((A (FundUrl $fi.id) $fi.name)) + @(& $cells $fi))) }
+  return Table $heads $rows
+}
+function TwoBlocks($t1, $h1, $t2, $h2) { return '<div class="grid-2 section-gap">' + (Block $t1 $h1 "") + (Block $t2 $h2 "") + "</div>" }
+function AppLink($href, $text) { return '<p class="section-gap">' + (A $href $text) + "</p>" }
+
+function TermExample($slug) {
+  switch ($slug) {
+    "nettokop" {
+      $top = @($pageStocks | Where-Object { $null -ne $_.netFlow -and $_.price -and $_.flow -gt 0 } | Sort-Object flow -Descending | Select-Object -First 10)
+      $rows = NewList; foreach ($s in $top) { $rows.Add(@((A (StockUrl $s) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }
+      return Block "Mest nettoköpta aktier $QL" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rows) "section-gap"
+    }
+    "aktiv-risk" {
+      $l = @($activeFunds | Where-Object { $_.ar -gt 0 })
+      return TwoBlocks "Lägst aktiv risk" (FundTable @($l | Sort-Object ar | Select-Object -First 10) @("Aktiv fond", "Aktiv risk", "Avgift") { param($f) @((PctPlain $f.ar), (FeeText $f)) }) `
+        "Högst aktiv risk" (FundTable @($l | Sort-Object ar -Descending | Select-Object -First 10) @("Aktiv fond", "Aktiv risk", "Avgift") { param($f) @((PctPlain $f.ar), (FeeText $f)) })
+    }
+    "indexnara" {
+      $l = @($infos | Where-Object { (Category $_) -eq "closet" -and $_.aum -ge 100e6 } | Sort-Object aum -Descending)
+      if (-not $l.Count) { return "" }
+      $cost = 0.0; foreach ($f in $l) { $cost += $f.aum * $f.feeMax / 100 }
+      return '<p class="section-gap">Just nu är ' + (Plural $l.Count "aktiefond" "aktiefonder") + " med minst 100 mkr indexnära enligt den här definitionen. Tillsammans tar de ut ungefär <b>" +
+        (BigSek $cost) + " per år</b> i avgifter från sina sparare.</p>" +
+        (Block "Indexnära fonder $QL" (FundTable $l @("Fond", "Aktiv risk", "Avgift", "Förmögenhet") { param($f) @((PctPlain $f.ar), (FeeText $f), (BigSek $f.aum)) }) "section-gap")
+    }
+    "indexfond" {
+      $l = @($infos | Where-Object { $_.isIndex -and $_.aum } | Sort-Object aum -Descending | Select-Object -First 15)
+      return Block "Största indexfonderna" (FundTable $l @("Fond", "Avgift", "Förmögenhet") { param($f) @((FeeText $f), (BigSek $f.aum)) }) "section-gap"
+    }
+    "avgift" {
+      $l = @($eqFunds | Where-Object { $null -ne $_.feeMax -and $_.aum -ge 100e6 })
+      return TwoBlocks "Lägst avgift bland aktiefonder" (FundTable @($l | Sort-Object feeMax | Select-Object -First 10) @("Fond", "Avgift", "Förmögenhet") { param($f) @((FeeText $f), (BigSek $f.aum)) }) `
+        "Högst avgift bland aktiefonder" (FundTable @($l | Sort-Object feeMax -Descending | Select-Object -First 10) @("Fond", "Avgift", "Förmögenhet") { param($f) @((FeeText $f), (BigSek $f.aum)) })
+    }
+    "standardavvikelse" {
+      $l = @($eqFunds | Where-Object { $_.sd -gt 0 -and $_.aum -ge 500e6 })
+      return TwoBlocks "Minst svängningar" (FundTable @($l | Sort-Object sd | Select-Object -First 10) @("Aktiefond", "Standardavvikelse") { param($f) @((PctPlain $f.sd)) }) `
+        "Störst svängningar" (FundTable @($l | Sort-Object sd -Descending | Select-Object -First 10) @("Aktiefond", "Standardavvikelse") { param($f) @((PctPlain $f.sd)) })
+    }
+    "fondformogenhet" {
+      $l = @($infos | Where-Object { $_.aum } | Sort-Object aum -Descending | Select-Object -First 15)
+      return Block "Största fonderna" (FundTable $l @("Fond", "Fondbolag", "Förmögenhet") { param($f) @((A (CoUrl $f.co) $f.co), (BigSek $f.aum)) }) "section-gap"
+    }
+    "kopsvit" {
+      if ($hq -lt 0) { return "" }
+      $rows = NewList
+      foreach ($x in @(StreakList $pageStocks $hq 1 | Select-Object -First 10)) { $rows.Add(@((A (StockUrl $x.s) $x.s.name), (Num0 $x.n), (Colored $x.sum (Fmt $x.sum 0)))) }
+      return Block "Längsta köpsviterna just nu" (Table @("Aktie", "Kvartal i rad", "Summa (mkr)") $rows) "section-gap"
+    }
+    "sektorrotation" {
+      $by = @{}
+      foreach ($s in $pageStocks) { if ($null -ne $s.netFlow -and $s.sector -ne "Övrigt") { $by[$s.sector] = [double]$by[$s.sector] + $s.netFlow } }
+      $rows = NewList
+      foreach ($k in @($by.Keys | Sort-Object { $by[$_] } -Descending)) { $rows.Add(@((Esc $k), (Colored $by[$k] (BigSek $by[$k] -Sign)))) }
+      return Block "Fondernas nettoköp per sektor $QL" (Table @("Sektor", "Nettoköp") $rows) "section-gap"
+    }
+    "aktiv-andel" {
+      $l = @($activeFunds | Where-Object { $profiles.ContainsKey($_.id) -and $null -ne $profiles[$_.id][0] })
+      $cells = { param($f) @((Fmt ($profiles[$f.id][0] * 100) 0) + " %", (FeeText $f)) }
+      return TwoBlocks "Högst aktiv andel" (FundTable @($l | Sort-Object { $profiles[$_.id][0] } -Descending | Select-Object -First 10) @("Aktiv fond", "Aktiv andel", "Avgift") $cells) `
+        "Lägst aktiv andel" (FundTable @($l | Sort-Object { $profiles[$_.id][0] } | Select-Object -First 10) @("Aktiv fond", "Aktiv andel", "Avgift") $cells)
+    }
+    "koncentration" {
+      $l = @($activeFunds | Where-Object { $profiles.ContainsKey($_.id) } | Sort-Object { $profiles[$_.id][1] } -Descending | Select-Object -First 10)
+      return Block "Mest koncentrerade aktiva fonderna" (FundTable $l @("Fond", "Tio största", "Antal aktier") { param($f) @((Fmt ($profiles[$f.id][1] * 100) 0) + " %", (Num0 $profiles[$f.id][2])) }) "section-gap"
+    }
+    "avkastning" {
+      if (-not $perf) { return "" }
+      $l = @($infos | Where-Object { $p = $perf.funds.($_.id); $p -and $null -ne $p[3] } | Sort-Object { $perf.funds.($_.id)[3] } -Descending | Select-Object -First 10)
+      return (Block "Högst snittavkastning per år, fem år" (FundTable $l @("Fond", "Snitt per år") { param($f) @(PctPlain $perf.funds.($f.id)[3]) }) "section-gap") +
+        '<p class="desc">Avkastning efter avgifter enligt Pensionsmyndigheten, beräknad ' + (Esc $perf.calculated) + ". Historisk avkastning är ingen garanti för framtida avkastning.</p>"
+    }
+    "split" {
+      $l = @($stocks | Where-Object { $_.split -and $_.f2 } | Sort-Object name)
+      if (-not $l.Count) { return "" }
+      $rows = NewList; foreach ($s in $l) { $rows.Add(@((A (StockUrl $s) $s.name), ("×" + (Fmt $s.split 1)))) }
+      return Block "Splitjusterade aktier $QL" (Table @("Aktie", "Kvot") $rows) "section-gap"
+    }
+    "isin" {
+      $rows = NewList
+      foreach ($s in @($pageStocks | Sort-Object f2 -Descending | Select-Object -First 10)) { $rows.Add(@((A (StockUrl $s) $s.name), $s.isin)) }
+      return Block "Exempel: de mest ägda aktierna" (Table @("Aktie", "ISIN") $rows) "section-gap"
+    }
+    "kvartalsrapport" { return "" } # länkarna till rapporterna läggs till efter att de byggts
+    { $_ -in "blankning", "kort-position" } { return AppLink "/#/blankning" "Se vilka aktier som blankas och vilka som blankar dem" }
+    { $_ -in "uppkopserbjudande", "budpremie" } { return AppLink "/#/uppkop" "Se alla uppköpserbjudanden och vilka fonder som ägde bolagen" }
+    "overlapp" { return AppLink "/#/jamfor" "Jämför två fonder och se hur lika de är" }
+  }
+  return ""
+}
+
+$termPages = @()
+if ($gl) {
+  $terms = @($gl.terms | Sort-Object { $_[1] })
+  foreach ($t in $terms) {
+    $slug = [string]$t[0]; $name = [string]$t[1]; $text = [string]$t[2]
+    $others = (@($terms | Where-Object { $_[0] -ne $slug } | ForEach-Object { A "/ordlista/$($_[0])/" $_[1] }) -join "")
+    $content = '<div class="page-head"><div class="crumbs"><a href="/ordlista/">Ordlista</a> / ' + (Esc $name) + "</div><h1>" + (Esc $name) + "</h1></div>" +
+      '<p class="lead">' + (Esc $text) + "</p>" + (TermExample $slug) +
+      '<section class="block section-gap"><div class="block-head"><h2>Fler begrepp</h2></div><div class="glossary-index">' + $others + "</div></section>" +
+      '<p class="desc section-gap">Data från Finansinspektionens fondinnehav, ' + $QL + ". Inte investeringsrådgivning.</p>"
+    $desc = if ($text.Length -gt 155) { $text.Substring(0, 152).TrimEnd() + "…" } else { $text }
+    $termPages += [pscustomobject]@{ slug = $slug; name = $name; text = $text; content = $content; desc = $desc }
+  }
+}
+
+# ---------- Kvartalsrapporter ----------
+
+function ReportSlug($qid) { return $qid.Substring(0, 4) + "-q" + $qid.Substring(5) }
+$reportQs = @($index.quarters | ForEach-Object { [string]$_.id })
+$reportList = @()
+for ($ri = 0; $ri -lt $reportQs.Count; $ri++) {
+  $qid = $reportQs[$ri]
+  $qd = if ($qid -eq $Q) { $cur } else { LoadQuarter $qid }
+  $m = $qd.meta; $ql = QLabel $qid; $pl = QLabel ([string]$m.prevId)
+  $cont = @($qd.stocks | Where-Object { $_.price -and $null -ne $_.netFlow })
+  $buys = @($cont | Where-Object { $_.flow -gt 0 } | Sort-Object flow -Descending)
+  $sells = @($cont | Where-Object { $_.flow -lt 0 } | Sort-Object flow)
+  $news = @($cont | Where-Object { $_.nNew -gt 0 } | Sort-Object nNew -Descending)
+  $net = $qd.tNet
+  $by = @{}
+  foreach ($s in $cont) { if ($s.sector -ne "Övrigt") { $by[$s.sector] = [double]$by[$s.sector] + $s.flow } }
+  $sectors = @($by.Keys | Sort-Object { $by[$_] } -Descending)
+  $topLinks = { param($list) JoinSv @($list | Select-Object -First 3 | ForEach-Object { (A (IsinUrl $_.isin) $_.name) + " (" + (BigSek $_.flow -Sign) + ")" }) }
+
+  $headline = $(if ($sectors.Count) { "Fonderna köpte " + (LcWord $sectors[0]) } else { "Fondernas affärer" }) + $(if ($buys.Count) { " och mest av allt " + $buys[0].name } else { "" })
+  $paras = @("Svenska fonder " + $(if ($net -ge 0) { "nettoköpte" } else { "nettosålde" }) + " svenska aktier för <b>" + (BigSek ([math]::Abs($net))) + "</b> under " + $ql +
+    ". Jämförelsen gäller " + (Num0 $qd.tFunds) + " fonder som rapporterade både " + $pl + " och " + $ql + ".")
+  if ($buys.Count) { $paras += "Mest köpte fonderna " + (& $topLinks $buys) + "." }
+  if ($sells.Count) { $paras += "Mest såldes " + (& $topLinks $sells) + "." }
+
+  $rowsB = NewList; foreach ($s in @($buys | Select-Object -First 10)) { $rowsB.Add(@((A (IsinUrl $s.isin) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }
+  $rowsS = NewList; foreach ($s in @($sells | Select-Object -First 10)) { $rowsS.Add(@((A (IsinUrl $s.isin) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }
+  $content = '<article class="report"><div class="page-head"><div class="crumbs"><a href="/rapport/">Kvartalsrapporter</a> / ' + $ql + " jämfört med " + $pl + "</div>" +
+    "<h1>" + (Esc $headline) + "</h1></div>" + '<div class="prose">' + (($paras | ForEach-Object { "<p>$_</p>" }) -join "") + "</div>" +
+    '<div class="grid-2 section-gap">' + (Block "Kvartalets största köp" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsB) "") +
+    (Block "Kvartalets största sälj" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsS) "") + "</div>"
+  if ($sectors.Count) {
+    $rows = NewList; foreach ($k in $sectors) { $rows.Add(@((Esc $k), (Colored $by[$k] (BigSek $by[$k] -Sign)))) }
+    $content += Block "Sektorer" (Table @("Sektor", "Nettoköp") $rows) "section-gap"
+  }
+  $qiR = if ($hist) { [array]::IndexOf([string[]]@($hist.quarters), $qid) } else { -1 }
+  if ($qiR -ge 0) {
+    $bs = @(StreakList $qd.stocks $qiR 1); $ss = @(StreakList $qd.stocks $qiR -1)
+    if ($bs.Count -or $ss.Count) {
+      $p = ""
+      if ($bs.Count) { $p += (A (IsinUrl $bs[0].s.isin) $bs[0].s.name) + " har nettoköpts <b>" + $bs[0].n + " kvartal i rad</b>" + $(if ($bs.Count -gt 1) { ", och " + (Esc $bs[1].s.name) + " " + $bs[1].n + " kvartal i rad" } else { "" }) + ". " }
+      if ($ss.Count) { $p += (A (IsinUrl $ss[0].s.isin) $ss[0].s.name) + " har nettosålts " + $ss[0].n + " kvartal i rad." }
+      $content += Block "Trender" "<p>$p</p>" "section-gap"
+    }
+  }
+  if ($news.Count) {
+    $content += Block "Nya favoriter" ("<p><b>" + $news[0].nNew + " fonder</b> köpte in sig i " + (A (IsinUrl $news[0].isin) $news[0].name) + " för första gången" +
+      $(if ($news.Count -gt 1) { ", och " + $news[1].nNew + " i " + (Esc $news[1].name) } else { "" }) + ".</p>") "section-gap"
+  }
+  $closet = @($qd.raw.fundInfo | ForEach-Object { InfoObj $_ } | Where-Object { $null -ne $_.ar -and $null -ne $_.feeMax -and $_.aum -ge 100e6 -and (Category $_) -eq "closet" })
+  if ($closet.Count) {
+    $cost = 0.0; foreach ($f in $closet) { $cost += $f.aum * $f.feeMax / 100 }
+    $content += Block "Avgifter" ("<p>" + $closet.Count + " aktiefonder har låg aktiv risk men tar ut minst " + (Fmt $CLOSET_FEE 1) + " % i avgift. Tillsammans tar de ut ungefär <b>" +
+      (BigSek $cost) + ' per år</b> av sina sparare. <a href="/ordlista/indexnara/">Vad betyder indexnära?</a></p>') "section-gap"
+  }
+  $nav = @()
+  if ($ri + 1 -lt $reportQs.Count) { $nav += A "/rapport/$(ReportSlug $reportQs[$ri + 1])/" ("← " + (QLabel $reportQs[$ri + 1])) }
+  if ($ri -gt 0) { $nav += A "/rapport/$(ReportSlug $reportQs[$ri - 1])/" ((QLabel $reportQs[$ri - 1]) + " →") }
+  $content += '<p class="desc section-gap">' + ($nav -join " · ") + " · Källa: Finansinspektionens fondinnehav per kvartal.</p></article>"
+
+  $top3 = @($buys | Select-Object -First 3 | ForEach-Object { $_.name })
+  $desc = "Svenska fonder " + $(if ($net -ge 0) { "nettoköpte" } else { "nettosålde" }) + " svenska aktier för " + (BigSek ([math]::Abs($net))) + " under $ql." +
+    $(if ($top3.Count) { " Mest köpte de " + (JoinSv $top3) + "." } else { "" }) +
+    $(if ($sells.Count) { " Mest sålde de " + (JoinSv @($sells | Select-Object -First 3 | ForEach-Object { $_.name })) + "." } else { "" })
+  $stats = @(@("Fonder", (Num0 $qd.tFunds), "#1f2328"), @("Nettoköp", (BigSek $net -Sign), (FlowColor $net)), @("Största köp", $(if ($buys.Count) { BigSek $buys[0].flow -Sign } else { "–" }), "#1a7f37"))
+  $rs = ReportSlug $qid
+  $img = Image "rapport-$rs" (OgSvg "Kvartalsrapport $ql" "Svenska fonders köp och sälj" $stats "Mest köpta aktier" $null ($top3 -join " · "))
+  $article = '{"@context":"https://schema.org","@type":"Article","headline":' + (J "Fondernas köp och sälj $ql") + ',"description":' + (J $desc) +
+    ',"datePublished":' + (J ([string]$m.built)) + ',"dateModified":' + (J ([string]$m.built)) + ',"inLanguage":"sv-SE","image":' + (J "$BaseUrl/$img") +
+    ',"author":{"@type":"Organization","name":"Fondinsyn","url":' + (J "$BaseUrl/") + '},"publisher":{"@type":"Organization","name":"Fondinsyn","url":' + (J "$BaseUrl/") + "}}"
+  Page "rapport/$rs/" "rapport/$qid" "Fondernas köp och sälj $ql – kvartalsrapport | Fondinsyn" $desc $img $content -Crumbs @("Kvartalsrapporter", "rapport/", $ql, "rapport/$rs/") -Ld $article
+  $reportList += [pscustomobject]@{ q = $qid; label = $ql; slug = $rs; headline = $headline; desc = $desc }
+}
+
+$rows = NewList
+foreach ($r in $reportList) { $rows.Add(@((A "/rapport/$($r.slug)/" $r.label), (Esc $r.headline))) }
+Page "rapport/" "rapport" "Kvartalsrapporter – vad fonderna köpte och sålde | Fondinsyn" "Varje kvartal: vilka svenska aktier fonderna köpte och sålde mest, sektorerna de flyttade pengar till och de längsta köpsviterna." $defaultImg -Crumbs @("Kvartalsrapporter", "rapport/") -Keep (
+  '<div class="page-head"><h1>Kvartalsrapporter</h1></div><p class="lead">En sammanfattning per kvartal av vad svenska fonder köpte och sålde, byggd på innehaven som fondbolagen rapporterar till Finansinspektionen.</p>' +
+  (Table @("Kvartal", "Rubrik") $rows))
+Write-Host "  $($reportList.Count) kvartalsrapporter"
+
+# Ordlistans sidor (efter rapporterna, så att begreppet kvartalsrapport kan länka till dem)
+foreach ($tp in $termPages) {
+  $extra = ""
+  if ($tp.slug -eq "kvartalsrapport" -and $reportList.Count) {
+    $extra = Block "Fondinsyns kvartalsrapporter" ("<ul>" + (($reportList | ForEach-Object { "<li>" + (A "/rapport/$($_.slug)/" $_.label) + " – " + (Esc $_.headline) + "</li>" }) -join "") + "</ul>") "section-gap"
+  }
+  $content = $tp.content.Replace('<section class="block section-gap"><div class="block-head"><h2>Fler begrepp', $extra + '<section class="block section-gap"><div class="block-head"><h2>Fler begrepp')
+  $term = '{"@context":"https://schema.org","@type":"DefinedTerm","name":' + (J $tp.name) + ',"description":' + (J $tp.text) + ',"inDefinedTermSet":' + (J "$BaseUrl/ordlista/") + "}"
+  Page "ordlista/$($tp.slug)/" "ordlista/$($tp.slug)" "$($tp.name) – vad betyder det? | Fondinsyn" $tp.desc $defaultImg $content -Crumbs @("Ordlista", "ordlista/", $tp.name, "ordlista/$($tp.slug)/") -Ld $term -Keep
+}
+if ($gl) {
+  $faq = (@($gl.faq | ForEach-Object { "<details><summary>" + (Esc $_[0]) + "</summary><p>" + (Esc $_[1]) + "</p></details>" }) -join "")
+  $list = (@($termPages | ForEach-Object { '<div class="g-item"><dt>' + (A "/ordlista/$($_.slug)/" $_.name) + "</dt><dd>" + (Esc $_.text) + "</dd></div>" }) -join "")
+  Page "ordlista/" "ordlista" "Ordlista och vanliga frågor om fonder | Fondinsyn" "Vad betyder aktiv andel, indexnära, nettoköp och blankning? Förklaringar av begreppen på Fondinsyn och svar på vanliga frågor om fonddatan." $defaultImg -Crumbs @("Ordlista", "ordlista/") (
+    '<div class="page-head"><h1>Vanliga frågor och ordlista</h1></div><div class="faq">' + $faq + '</div><h2 class="section-title">Ordlista</h2><dl class="glossary">' + $list + "</dl>")
+  Write-Host "  $($termPages.Count) sidor i ordlistan"
+}
+
 # Startsidan och 404
-$intro = '<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
+$intro ='<p class="intro"><b>Fondinsyn</b> visar vilka aktier svenska fonder äger, köper och säljer. Alla fondbolag rapporterar varje kvartal ' +
   "sina fonders innehav till Finansinspektionen. Fondinsyn hämtar rapporterna automatiskt och räknar ut hur innehaven har förändrats, " +
   "per aktie, fond och fondbolag, med historik sedan 2018. Här finns också fondernas avgifter, blankning och uppköpsbud. " +
   "Siffrorna gäller innehaven den " + $asOf + " jämfört med " + (DateText $qMeta.prev) + '. <a href="/#/om">Om datan och metoden</a></p>'
@@ -574,7 +992,7 @@ if ($WriteHome) {
   $rowsS = NewList; foreach ($s in @($cont | Where-Object { $_.flow -lt 0 } | Sort-Object flow | Select-Object -First 15)) { $rowsS.Add(@((A (StockUrl $s) $s.name), (Colored $s.flow (Mkr $s.flow -Sign)), (Num0 $s.f2))) }
   $homeContent = $intro + '<div class="grid-2 section-gap">' + (Block "Störst nettoköp $QL" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsB) "") +
     (Block "Störst nettosälj $QL" (Table @("Aktie", "Nettoköp (mkr)", "Fonder") $rowsS) "") + "</div>" +
-    '<p class="desc section-gap"><a href="/aktier/">Alla aktier</a> · <a href="/fonder/">Alla fonder</a> · <a href="/fondbolag/">Alla fondbolag</a></p>'
+    '<p class="desc section-gap"><a href="/rapport/' + (ReportSlug $Q) + '/">Kvartalsrapport ' + $QL + '</a> · <a href="/aktier/">Alla aktier</a> · <a href="/fonder/">Alla fonder</a> · <a href="/fondbolag/">Alla fondbolag</a> · <a href="/ordlista/">Ordlista</a></p>'
   # Webbplatsen och datan som dataset (syns i Google Dataset Search)
   $first = if ($hist) { [string]$hist.quarters[0] } else { $Q }
   $qEnd = @{ "1" = "03-31"; "2" = "06-30"; "3" = "09-30"; "4" = "12-31" }

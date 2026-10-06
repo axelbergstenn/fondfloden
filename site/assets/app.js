@@ -178,6 +178,70 @@
     });
   }
 
+  // ---------- Små filer för senaste kvartalet ----------
+  // scripts/build-pages.ps1 delar upp de stora filerna så att en aktie- eller fondsida bara hämtar det den
+  // behöver. Saknas en fil (till exempel lokalt, eller för äldre kvartal) används de stora filerna som förut.
+
+  function latestQ() { return state.index && state.index.quarters[0].id; }
+
+  // Historik för en svensk aktie (data/hist/<isin>.json) i stället för hela history-se.json
+  function needStockHistory(isin) {
+    var part = histPart(isin);
+    if (part !== "se" || state.loading["history-se"] === "done" || failed("h-" + isin)) return needHistory(part);
+    return need("h-" + isin, function () {
+      return getJSON("data/hist/" + isin + ".json").then(function (x) {
+        if (!state.history) {
+          var h = { quarters: x.quarters, stocks: {}, qIndex: {} };
+          x.quarters.forEach(function (q, i) { h.qIndex[q] = i; });
+          state.history = h;
+        }
+        state.history.stocks[isin] = x.s;
+      });
+    });
+  }
+
+  // En fonds utländska innehav (data/fund/<id>.json) i stället för hela <kvartal>-world.json.
+  // Returnerar ett dataset med fonden, eller null medan det laddas.
+  function fundWorld(id) {
+    var d = quarterData(), q = state.q, key = "fw-" + id;
+    if (d.world) return d.world;
+    if (q !== latestQ() || failed(key)) return needWorld() ? d.world : null;
+    if (!need(key, function () {
+      return getJSON("data/fund/" + encodeURIComponent(id) + ".json").then(function (raw) {
+        if (raw.q !== q) throw new Error("data/fund/" + id + ".json gäller " + raw.q);
+        d.fundWorld = d.fundWorld || {};
+        d.fundWorld[id] = prepare(raw);
+      });
+    })) return null;
+    return d.fundWorld[id];
+  }
+
+  // Aktiv andel, koncentration och antal aktier per fond, uträknade i bygget (data/profiles.json)
+  function needProfiles() {
+    var d = quarterData(), q = state.q;
+    if (q !== latestQ() || failed("profiles")) return needWorld();
+    return need("profiles", function () {
+      return getJSON("data/profiles.json").then(function (p) {
+        if (p.q !== q) throw new Error("data/profiles.json gäller " + p.q);
+        d.profileData = p.p;
+      });
+    });
+  }
+
+  // Namn på utländska aktier för sökningen (data/search.json) i stället för hela utlandsfilen
+  function needSearchNames() {
+    var d = quarterData(), q = state.q;
+    if (d.world || q !== latestQ() || failed("search-names")) return needWorld();
+    return need("search-names", function () {
+      return getJSON("data/search.json").then(function (x) {
+        if (x.q !== q) throw new Error("data/search.json gäller " + x.q);
+        d.searchNames = x.stocks.map(function (s) {
+          return { isin: s[0], name: prettyName(s[1]), sector: s[2] || "Övrigt", country: s[3] || "", f2: s[4], val2: s[5] };
+        });
+      });
+    });
+  }
+
   function prepare(raw) {
     var ds = { raw: raw };
     ds.funds = raw.funds.map(function (x) {
@@ -563,7 +627,7 @@
       if (!needWorld()) return failed("world-" + state.q) ? errorBlock() : loadingBlock();
       s = d.world.byIsin[isin];
     }
-    var hasHist = needHistory(histPart(isin));
+    var hasHist = needStockHistory(isin);
     var hs = hasHist ? histFor(isin) : null;
     if (!s && !hs) return notFound("Aktien finns inte i " + quarterLabel(state.q) + ".");
     var name = s ? s.name : hs.name;
@@ -727,9 +791,9 @@
     var f = d.fi[id] || d.se.fundById[id];
     if (!f) return notFound("Fonden finns inte i " + quarterLabel(state.q) + ".");
     document.title = f.name + " – Fondinsyn";
-    var hasWorld = needWorld();
+    var wds = fundWorld(id), hasWorld = !!wds;
     var seF = d.se.fundById[id];
-    var wF = hasWorld ? d.world.fundById[id] : null;
+    var wF = hasWorld ? wds.fundById[id] : null;
     var cat = d.fi[id] ? fundCategory(d.fi[id]) : "other";
 
     var html = '<div class="page-head"><div class="crumbs"><a href="#/fonder">Fonder</a> / ' + esc(f.name) + '</div><div class="title-row"><h1>' + esc(f.name) +
@@ -749,7 +813,7 @@
         fig("Svenska aktier", bigSek(seF ? seF.val : 0)) +
         fig("Utländska aktier", hasWorld ? bigSek(wF ? wF.val : 0) : "…") + "</dl>";
       var perfHtml = perfBlock(id);
-      var prof = hasWorld ? fundProfile(id) : null;
+      var prof = needProfiles() ? fundProfile(id) : null;
       if (prof) {
         html += '<dl class="figures">' +
           fig(termLink("aktiv-andel", "Aktiv andel"), prof.active == null ? "–" : pctShare(prof.active),
@@ -766,7 +830,7 @@
 
     html += fundHoldings(f, seF, "Svenska aktier", d.se, d.meta);
     if (!hasWorld) html += '<section class="block section-gap"><div class="block-head"><h2>Utländska aktier</h2></div>' + (failed("world-" + state.q) ? errorBlock() : loadingBlock()) + "</section>";
-    else if (wF) html += fundHoldings(f, wF, "Utländska aktier", d.world, d.meta);
+    else if (wF) html += fundHoldings(f, wF, "Utländska aktier", wds, d.meta);
     return html;
   }
 
@@ -868,7 +932,7 @@
   function viewFees() {
     document.title = "Avgifter – Fondinsyn";
     var d = quarterData(), ds = d.se;
-    var hasWorld = needWorld(), hasPerf = needPerf();
+    var hasWorld = needProfiles(), hasPerf = needPerf();
     var funds = fundList().filter(function (f) { return f.ar != null && f.feeMax != null && f.aum >= 100e6 && fundCategory(f) !== "other"; });
     if (feeFilter.scope === "se") {
       funds = funds.filter(function (f) { var m = ds.fundById[f.id]; return m && m.val / f.aum >= 0.6; });
@@ -1134,6 +1198,10 @@
   // Returnerar { active, top10, n, region } eller null om fonden inte går att mäta
   function fundProfile(id) {
     var d = quarterData();
+    if (d.profileData) {
+      var pd = d.profileData[id];
+      return pd ? { active: pd[0], top10: pd[1], n: pd[2], region: pd[3] } : null;
+    }
     if (!d.world) return null; // kräver alla innehav
     d.profiles = d.profiles || {};
     if (id in d.profiles) return d.profiles[id];
@@ -1370,7 +1438,8 @@
     input.value = "";
     runSearch();
     input.focus();
-    needWorld();
+    needSearchNames();
+    needGlossary();
   }
   function closeSearch() {
     search.open = false;
@@ -1378,6 +1447,9 @@
     document.body.classList.remove("modal-open");
     $("searchBtn").focus();
   }
+
+  // Utländska aktier att söka bland: hela datasetet om det redan är laddat, annars namnlistan
+  function worldNames() { var d = quarterData(); return d.world ? d.world.stocks : (d.searchNames || []); }
 
   function scoreMatch(name, q) {
     var n = name.toLowerCase();
@@ -1393,15 +1465,14 @@
     if (!q) {
       var w = watchGet();
       w.stocks.forEach(function (isin) {
-        var s = d.se.byIsin[isin] || (d.world && d.world.byIsin[isin]);
+        var s = d.se.byIsin[isin] || (d.world && d.world.byIsin[isin]) || worldNames().filter(function (x) { return x.isin === isin; })[0];
         if (s) items.push({ kind: "Bevakade", label: s.name, sub: s.sector, href: stockHref(s) });
       });
       w.funds.forEach(function (id) { var f = d.fi[id]; if (f) items.push({ kind: "Bevakade", label: f.name, sub: f.co, href: fundHref(f) }); });
     } else {
       var stocks = [];
-      [d.se, d.world].forEach(function (ds) {
-        if (!ds) return;
-        ds.stocks.forEach(function (s) {
+      [d.se.stocks, worldNames()].forEach(function (list) {
+        list.forEach(function (s) {
           if (!s.f2 && !s.f1b) return;
           var sc = s.isin.toLowerCase() === q ? 0 : scoreMatch(s.name, q);
           if (sc >= 0) stocks.push({ s: s, sc: sc });
@@ -1437,7 +1508,7 @@
         (it.sub ? '<span class="sr-sub">' + esc(it.sub) + "</span>" : "") + "</li>";
     });
     if (!items.length) {
-      html = '<li class="sr-empty">' + (q ? "Inga träffar på \"" + esc(q) + "\"." : "Sök bland " + int(d.se.stocks.length + (d.world ? d.world.stocks.length : 0)) + " aktier och " + int(fundList().length) + " fonder.") + "</li>";
+      html = '<li class="sr-empty">' + (q ? "Inga träffar på \"" + esc(q) + "\"." : "Sök bland " + int(d.se.stocks.length + worldNames().length) + " aktier och " + int(fundList().length) + " fonder.") + "</li>";
     }
     $("searchResults").innerHTML = html;
   }
@@ -1898,7 +1969,12 @@
     return parts.slice(0, -1).join(", ") + " och " + parts[parts.length - 1];
   }
 
-  function viewReport() {
+  function viewReport(q) {
+    // /rapport/2025-q4/ visar det kvartalet utan att ändra vilket kvartal som är valt nästa gång
+    if (q && q !== state.q && state.index.quarters.some(function (x) { return x.id === q; })) {
+      setTimeout(function () { selectQuarter(q, true); }, 0);
+      return loadingBlock();
+    }
     var d = quarterData(), ds = d.se, m = d.meta;
     var hasHist = needHistory("se"), hasOffers = needOffers();
     var cont = ds.stocks.filter(function (s) { return s.price && !s.isNew && !s.isGone; });
@@ -2104,42 +2180,19 @@
 
   // ---------- Ordlista och vanliga frågor ----------
 
-  var GLOSSARY = [
-    ["nettokop", "Nettoköp", "Hur mycket fonderna köpt minus sålt av en aktie under kvartalet. Fondinsyn räknar förändringen i antal aktier gånger kursen vid kvartalets slut, så att kursrörelser inte påverkar siffran. Bara fonder som rapporterat båda kvartalen räknas."],
-    ["aktiv-risk", "Aktiv risk", "Mäter hur mycket fondens avkastning har avvikit från jämförelseindex de senaste 24 månaderna (kallas även tracking error). En indexfond ligger nära 0 %. Ju högre aktiv risk, desto mer skiljer sig fonden från index."],
-    ["indexnara", "Indexnära fond", "En aktiv fond som i praktiken följer sitt jämförelseindex nära. Fondinsyn markerar aktiefonder med aktiv risk under 3 % och en avgift på minst 0,7 %, eftersom sparare då betalar för aktiv förvaltning men får något som liknar en indexfond."],
-    ["indexfond", "Indexfond", "En fond som följer ett index i stället för att förvaltaren väljer aktier. Har oftast låg avgift. Fondinsyn känner igen indexfonder på namnet."],
-    ["avgift", "Förvaltningsavgift", "Den årliga avgift fondbolaget tar ut, i procent av ditt sparande. Fondinsyn visar den högsta fasta avgiften bland fondens andelsklasser, vilket oftast är den privatpersoner betalar. Prestationsbaserade avgifter ingår inte."],
-    ["standardavvikelse", "Standardavvikelse", "Mäter hur mycket fondens värde har svängt de senaste 24 månaderna. Högre siffra betyder större svängningar, det vill säga högre risk."],
-    ["fondformogenhet", "Fondförmögenhet", "Det totala värdet av allt fonden äger, det vill säga hur mycket pengar som förvaltas i fonden."],
-    ["kopsvit", "Köpsvit", "Antal kvartal i rad som fonderna sammantaget har nettoköpt (eller nettosålt) en aktie. Kvartal med nettoköp under 0,5 mkr räknas inte."],
-    ["sektorrotation", "Sektorrotation", "När fonderna flyttar pengar från en bransch till en annan, till exempel säljer fastigheter och köper industri. Fondinsyn summerar fondernas nettoköp per sektor och kvartal."],
-    ["overlapp", "Överlapp", "Hur stor del av två fonders aktieinnehav som är gemensamt. Räknas som summan av den lägsta vikten för varje aktie som båda fonderna äger. 100 % betyder exakt samma innehav."],
-    ["blankning", "Blankning", "Att låna aktier och sälja dem, för att köpa tillbaka dem billigare senare. Den som blankar tjänar alltså på att aktien sjunker. Kallas även att ta en kort position."],
-    ["kort-position", "Kort nettoposition", "Hur stor andel av ett bolags aktier som en investerare har blankat, efter avdrag för aktier den äger. Positioner på minst 0,1 % ska rapporteras till Finansinspektionen, och från 0,5 % publiceras innehavarens namn."],
-    ["uppkopserbjudande", "Uppköpserbjudande", "Ett erbjudande till alla aktieägare i ett börsnoterat bolag att sälja sina aktier, oftast för att köpa hela bolaget. Erbjudandehandlingen granskas och godkänns av Finansinspektionen."],
-    ["budpremie", "Budpremie", "Hur mycket högre budpriset är än aktiekursen innan budet blev känt, oftast jämfört med stängningskursen dagen före."],
-    ["split", "Aktiesplit", "När ett bolag delar upp sina aktier i fler, till exempel en gammal aktie blir tio nya. Värdet ändras inte. Fondinsyn justerar för splittar så att de inte ser ut som köp."],
-    ["isin", "ISIN", "En internationell kod som identifierar ett värdepapper, till exempel SE0000106270 för H&M B. Svenska aktier börjar med SE."],
-    ["aktiv-andel", "Aktiv andel", "Hur stor del av fondens innehav som skiljer sig från index, mellan 0 % (exakt som index) och 100 % (inga gemensamma aktier). Fondinsyn jämför med indexfondernas sammanlagda innehav, svenska för Sverigefonder och globala för globala fonder. Under cirka 60 % brukar ses som indexnära. Bara fonder med minst 80 % i antingen svenska eller utländska aktier mäts."],
-    ["avkastning", "Avkastning", "Hur mycket fondens värde har ökat eller minskat, efter fondens avgifter. Fondinsyn visar avkastning från Pensionsmyndighetens öppna data för fonderna på premiepensionens fondtorg: per kalenderår och som snitt per år för fem år. Fonder som inte finns på fondtorget saknar avkastning. Historisk avkastning är ingen garanti för framtida avkastning."],
-    ["koncentration", "Koncentration", "Hur stor andel av fondens aktieinnehav som ligger i de tio största innehaven. En hög andel betyder att fonden satsar mycket på några få bolag."],
-    ["kvartalsrapport", "Kvartalsrapportering", "Svenska fondbolag rapporterar varje kvartal alla sina fonders innehav till Finansinspektionen. Uppgifterna publiceras ungefär sex veckor efter kvartalets slut."]
-  ];
-
-  var FAQ = [
-    ["Hur ofta uppdateras Fondinsyn?", "Varje dag hämtas ny blankningsdata och nya uppköpserbjudanden. Fondernas innehav uppdateras när Finansinspektionen publicerar ett nytt kvartal, ungefär sex veckor efter kvartalsslut."],
-    ["Varför hittar jag inte min fond?", "Fondinsyn visar fonder som är registrerade i Sverige. Fonder som är registrerade i till exempel Luxemburg eller Irland, liksom många ETF:er, rapporterar inte till Finansinspektionen och finns därför inte med."],
-    ["Varför skiljer sig siffrorna från fondbolagets egna?", "Uppgifterna avser kvartalets sista dag, och fonden kan ha handlat mycket sedan dess. Fondinsyn räknar också nettoköp på ett eget sätt, med kursen vid kvartalsslut."],
-    ["Betyder det att en aktie är bra om fonderna köper den?", "Nej. Fondernas affärer kan bero på in- och utflöden av pengar, regler om hur mycket de får äga eller förvaltarens egna bedömningar. Se det som ett sätt att förstå marknaden, inte som ett köpråd."],
-    ["Varför blankar fonder?", "Det är främst hedgefonder som blankar, antingen för att de tror att aktien ska falla eller för att skydda andra positioner. Vanliga svenska aktiefonder får i regel inte blanka."],
-    ["Är Fondinsyn investeringsrådgivning?", "Nej. Fondinsyn sammanställer offentlig data från Finansinspektionen. Fatta egna beslut och läs fondens faktablad innan du investerar."]
-  ];
+  // Ordlistan och vanliga frågor ligger i data/glossary.json, som också bygger sidorna under /ordlista/
+  var GLOSSARY = [], FAQ = [];
+  function needGlossary() {
+    return need("glossary", function () {
+      return getJSON("data/glossary.json").then(function (g) { GLOSSARY = g.terms; FAQ = g.faq; });
+    });
+  }
 
   function termLink(slug, text) { return '<a class="term" href="#/ordlista/' + slug + '" title="Vad betyder det?">' + text + "</a>"; }
 
   function viewGlossary(slug) {
     document.title = "Vanliga frågor och ordlista – Fondinsyn";
+    if (!needGlossary()) return failed("glossary") ? errorBlock() : loadingBlock();
     var terms = GLOSSARY.slice().sort(function (a, b) { return a[1].localeCompare(b[1], "sv"); });
     var html = '<div class="page-head"><h1>Vanliga frågor och ordlista</h1><p class="meta lead">Svar på vanliga frågor och förklaringar av begreppen på Fondinsyn.</p></div>' +
       '<div class="faq">' + FAQ.map(function (q) {
@@ -2148,7 +2201,7 @@
       '<h2 class="section-title">Ordlista</h2>' +
       '<div class="glossary-index">' + terms.map(function (t) { return '<a href="#/ordlista/' + t[0] + '">' + esc(t[1]) + "</a>"; }).join("") + "</div>" +
       '<dl class="glossary">' + terms.map(function (t) {
-        return '<div class="g-item' + (t[0] === slug ? " g-active" : "") + '" id="term-' + t[0] + '"><dt>' + esc(t[1]) + "</dt><dd>" + esc(t[2]) + "</dd></div>";
+        return '<div class="g-item' + (t[0] === slug ? " g-active" : "") + '" id="term-' + t[0] + '"><dt>' + esc(t[1]) + "</dt><dd>" + esc(t[2]) + ' <a href="/ordlista/' + t[0] + '/">Exempel ur datan →</a></dd></div>';
       }).join("") + "</dl>";
     if (slug) setTimeout(function () { var el = $("term-" + slug); if (el) el.scrollIntoView({ block: "center" }); }, 0);
     return html;
@@ -2201,6 +2254,8 @@
   // data-route. En adress med # går alltid före.
   var pageRoute = document.body.getAttribute("data-route") || "";
   var pageTitle = pageRoute ? document.title : "";
+  // Sidor med data-keep (ordlistans begrepp, rapportlistan) har eget innehåll som appen inte ritar om
+  var pageKeep = document.body.hasAttribute("data-keep");
 
   function route() {
     var parts = (location.hash.replace(/^#\/?/, "") || pageRoute).split("/");
@@ -2212,8 +2267,8 @@
     var r = route();
     document.title = "Fondinsyn – vad köper och säljer svenska fonder?";
     state.charts = [];
-    var html;
-    switch (r.page) {
+    var html = null;
+    if (!(pageKeep && !location.hash)) switch (r.page) {
       case "aktier": html = viewStocks(); break;
       case "aktie": html = viewStock(r.arg); break;
       case "fonder": html = viewFunds(); break;
@@ -2223,7 +2278,7 @@
       case "portfolj": html = viewPortfolio(r.arg); break;
       case "jamfor": html = viewCompare(r.arg, r.arg2); break;
       case "uppkop": html = viewOffers(r.arg); break;
-      case "rapport": html = viewReport(); break;
+      case "rapport": html = viewReport(r.arg); break;
       case "blankning": html = viewShorts(); break;
       case "blankare": html = r.arg ? viewHolder(r.arg) : viewHolders(); break;
       case "fondbolag": html = r.arg ? viewCompany(r.arg) : viewCompanies(); break;
@@ -2232,7 +2287,7 @@
       case "kontakt": html = viewContact(); break;
       default: html = viewOverview();
     }
-    app.innerHTML = html;
+    if (html !== null) app.innerHTML = html;
     if (pageTitle && !location.hash) document.title = pageTitle;
     if (r.page === "aktier") renderStockTable();
     if (r.page === "fonder") renderFundTable();
@@ -2264,9 +2319,10 @@
     });
   }
 
-  function selectQuarter(id) {
+  function selectQuarter(id, temporary) {
     state.q = id;
-    store("ff-quarter", id);
+    if (!temporary) store("ff-quarter", id);
+    $("quarter").value = id;
     if (state.data[id] && state.data[id].se) { render(); return Promise.resolve(); }
     // Färdigbyggt innehåll (sökmotorsidorna) ligger kvar tills datan har laddats
     if (!app.children.length) app.innerHTML = loadingBlock();

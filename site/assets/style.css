@@ -16,6 +16,8 @@
   --brand: #1f6feb;
   --brand-ink: #1559c9;
   --brand-soft: #eef4ff;
+  --logo-ink: #0b1f3a;
+  --logo-dot: #2f6bff;
   --link: #1559c9;
   --pos: #067647;
   --neg: #d92d20;
@@ -63,9 +65,10 @@ p { margin: 0; }
 
 .topbar { background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30; padding-top: env(safe-area-inset-top); }
 .topbar-inner { display: flex; align-items: center; gap: 28px; min-height: 64px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; color: var(--fg); flex: none; }
+/* Loggan: namnet i gemener med en blå fyrkantig punkt */
+.brand { display: inline-flex; align-items: baseline; font-weight: 750; font-size: 25px; line-height: 1; letter-spacing: -0.05em; color: var(--logo-ink); flex: none; }
+.brand-dot { display: inline-block; width: 0.24em; height: 0.24em; margin-left: 0.07em; border-radius: 0.05em; background: var(--logo-dot); }
 .brand:hover { text-decoration: none; }
-.brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--brand); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12); }
 .mainnav { display: flex; align-items: stretch; gap: 2px; align-self: stretch; }
 .mainnav a, .more-btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 15px; font-weight: 500; color: var(--fg-soft); padding: 0 12px; background: none; border: 0; cursor: pointer; white-space: nowrap; position: relative; }
 .mainnav a:hover, .more-btn:hover { color: var(--fg); text-decoration: none; }
@@ -244,7 +247,7 @@ a.btn { color: var(--fg-soft); }
 .site-footer { background: var(--bg); border-top: 1px solid var(--border); margin-top: 24px; }
 .footer-inner { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr); gap: 32px; padding-top: 36px; padding-bottom: 28px; }
 .footer-brand p { margin-top: 12px; color: var(--fg-muted); font-size: 14px; max-width: 36ch; }
-.footer-brand .brand { font-size: 17px; }
+.footer-brand .brand { font-size: 22px; }
 .footer-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .footer-links div { display: flex; flex-direction: column; gap: 8px; }
 .footer-links h2 { font-size: 13px; font-weight: 650; color: var(--fg); margin-bottom: 2px; }
@@ -479,8 +482,7 @@ a.term:hover { color: var(--link); border-bottom-style: solid; }
 
   /* Sidhuvud: logga och kvartal, menyn ligger i flikraden */
   .topbar-inner { flex-wrap: nowrap; min-height: 56px; padding-top: 0; gap: 12px; }
-  .brand { font-size: 17px; }
-  .brand-mark { width: 28px; height: 28px; }
+  .brand { font-size: 23px; }
   .mainnav, .search-btn { display: none; }
   .select-sm { height: 38px; font-size: 16px; }
   .quarter-select { font-size: 15px; }

@@ -440,10 +440,11 @@ function TextEl($x, $y, $size, $color, $text, $extra) {
 function OgSvg($title, $sub, $stats, $label, $bars, $line) {
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.Append('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">')
-  [void]$sb.Append('<rect width="1200" height="630" fill="#ffffff"/><rect width="1200" height="8" fill="#1f6feb"/>')
-  [void]$sb.Append('<g transform="translate(72,52)"><rect width="40" height="40" rx="8" fill="#1f6feb"/><rect x="7.5" y="20" width="5" height="12.5" fill="#fff"/><rect x="17.5" y="12.5" width="5" height="20" fill="#fff"/><rect x="27.5" y="7.5" width="5" height="25" fill="#fff"/></g>')
-  [void]$sb.Append((TextEl 126 83 30 "#1f2328" "Fondinsyn" ' font-weight="700"'))
-  [void]$sb.Append((TextEl 1128 83 26 "#0969da" "fondinsyn.se" ' font-weight="600" text-anchor="end"'))
+  [void]$sb.Append('<rect width="1200" height="630" fill="#ffffff"/><rect width="1200" height="8" fill="#2f6bff"/>')
+  # Loggan: "fondinsyn" i gemener med blå fyrkantig punkt. Texten slutar vid punkten (text-anchor end),
+  # så att punkten hamnar rätt oavsett hur brett typsnittet blir.
+  [void]$sb.Append((TextEl 236 88 38 "#0b1f3a" "fondinsyn" ' font-weight="800" letter-spacing="-1.9" text-anchor="end"'))
+  [void]$sb.Append('<rect x="239.5" y="79" width="9" height="9" rx="2" fill="#2f6bff"/>')
   $ts = FitSize $title 64 40 1056 0.6
   [void]$sb.Append((TextEl 72 205 $ts "#1f2328" (Clip $title $ts 1056 0.6) ' font-weight="700"'))
   [void]$sb.Append((TextEl 72 255 28 "#59636e" (Clip $sub 28 1056 0.55) ""))

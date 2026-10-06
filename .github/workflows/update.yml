@@ -120,10 +120,10 @@ jobs:
           echo "$v" > site/version.txt
 
       # En fast sida per aktie, fond och fondbolag för sökmotorer, delningsbilder, sitemap och robots.txt.
-      # Utgår från site/index.html och körs därför efter versionsnumret.
+      # Utgår från site/index.html och körs därför efter versionsnumret. Misslyckas steget publiceras
+      # ingenting, så att den förra versionen med alla sidor ligger kvar i stället för en sajt utan dem.
       - name: Bygg sidor för sökmotorer och delningsbilder
         shell: pwsh
-        continue-on-error: true
         run: ./scripts/build-pages.ps1 -WriteHome
 
       - uses: actions/configure-pages@v6

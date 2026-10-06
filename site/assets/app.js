@@ -86,7 +86,11 @@
   }
   function bigSek(v, withSign) {
     if (v == null || !isFinite(v)) return "–";
-    var s = Math.abs(v) >= 1e9 ? nf1.format(v / 1e9) + " mdkr" : nf0.format(v / 1e6) + " mkr";
+    if (v === 0) return "0 kr";
+    var a = Math.abs(v);
+    // Små belopp med en decimal, och under 0,05 mkr som "under 0,1 mkr" i stället för "0 mkr"
+    if (a > 0 && a < 5e4) return "<" + nf1.format(0.1) + " mkr";
+    var s = a >= 1e9 ? nf1.format(v / 1e9) + " mdkr" : (a >= 1e8 ? nf0 : nf1).format(v / 1e6) + " mkr";
     return withSign ? signed(s, v) : fixMinus(s);
   }
   function msek(m, withSign) { return m == null ? "–" : mkr(m * 1e6, withSign); }
@@ -108,11 +112,15 @@
     if (!code) return "";
     try { return regionNames ? regionNames.of(code) : code; } catch (e) { return code; }
   }
+  // "VOLVO AB SER. B" blir "Volvo AB SER. B" och "ACRINOVA AB-B" blir "Acrinova AB-B". Korta ord (AB, ASA, SDB) behålls.
   function prettyName(name) {
-    if (!name || name !== name.toUpperCase()) return name || "";
-    return name.split(/(\s+)/).map(function (w) {
-      return w.length > 3 && /^[A-ZÅÄÖÉÜ]/.test(w) ? w.charAt(0) + w.slice(1).toLowerCase() : w;
-    }).join("");
+    if (!name) return "";
+    if (name === name.toUpperCase()) {
+      name = name.split(/(\s+|-)/).map(function (w) {
+        return w.length > 3 && /^[A-ZÅÄÖÉÜ]/.test(w) ? w.charAt(0) + w.slice(1).toLowerCase() : w;
+      }).join("");
+    }
+    return name.replace(/\b(INC|LTD|CORP)\b/g, function (w) { return w.charAt(0) + w.slice(1).toLowerCase(); });
   }
   function store(key, value) {
     try {
@@ -691,8 +699,8 @@
 
     if (s) {
       html += '<dl class="figures">' +
-        fig("Fonder som äger", int(s.f2)) + fig("Fondernas innehav", bigSek(s.val2)) +
-        fig("Nettoköp " + quarterLabel(state.q), s.netFlow == null ? "–" : '<span class="' + cls(s.flow) + '">' + bigSek(s.flow, true) + "</span>") +
+        fig("Fonder som äger", int(s.f2)) + fig("Fondernas innehav", s.price ? bigSek(s.val2) : "–", s.price ? "" : "kurs saknas") +
+        fig("Nettoköp " + quarterLabel(state.q), s.netFlow == null || !s.price ? "–" : '<span class="' + cls(s.flow) + '">' + bigSek(s.flow, true) + "</span>") +
         fig("Δ antal aktier", '<span class="' + cls(s.chg) + '">' + pct(s.chg, true) + "</span>") +
         fig("Nya fonder", int(s.nNew)) + fig("Avvecklat", int(s.nExit)) + "</dl>";
       if (s.isNew) html += '<p class="notice">Ingen fond ägde aktien förra kvartalet. Det beror oftast på en notering, avknoppning eller ett nytt aktieslag, så innehaven räknas inte som köp i översikten.</p>';
@@ -873,6 +881,12 @@
           ' % i avgift. Den följer alltså sitt jämförelseindex ganska nära, men kostar som en aktiv fond. <a href="#/avgifter">Läs mer om avgifter</a></p>';
       }
       html += perfHtml;
+    }
+
+    // Räntefonder och fondandelsfonder äger inga aktier direkt: förklara i stället för att visa tomma flikar
+    if (hasWorld && !(seF && seF.h.length) && !(wF && wF.h.length)) {
+      return html + '<p class="notice section-gap">Fonden ägde inga aktier direkt vid ' + quarterLabel(state.q) + ". Den placerar troligen i räntepapper eller i andra fonder, " +
+        "och sådana innehav finns inte med i Fondinsyns data.</p>";
     }
 
     // Flikar: alla innehav, eller bara kvartalets affärer (köp och sälj) i svenska och utländska aktier
@@ -2041,7 +2055,7 @@
       { key: "d", label: "Datum", cls: "muted", cell: function (r) { return esc(r.tx); } }
     ];
     var first = rows[rows.length - 1].tx.slice(0, 4);
-    return '<section class="block section-gap"><div class="block-head"><h2>Insynshandel</h2><span class="note">Senaste 12 månaderna: köpt ' + bigSek(b) + " · sålt " + bigSek(s) + "</span></div>" +
+    return '<section class="block section-gap"><div class="block-head"><h2>Insynshandel</h2><span class="note">' + (b || s ? "Senaste 12 månaderna: köpt " + bigSek(b) + " · sålt " + bigSek(s) : "Inga köp eller sälj de senaste 12 månaderna") + "</span></div>" +
       '<p class="desc">' + int(rows.length) + (rows.length === 1 ? " köp eller sälj" : " köp och sälj") + " anmälda " + (res.all ? "sedan " + first : "de senaste 90 dagarna") + ".</p>" +
       table("stock-ins-" + isin, cols, rows, { static: true, limit: 10, expand: true }) +
       '<a class="more" href="#/insyn">All insynshandel</a></section>';

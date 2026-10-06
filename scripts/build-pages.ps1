@@ -66,11 +66,14 @@ function Uniq($used, $slug, $suffix) {
 # Samma som prettyName i app.js: "VOLVO AB SER. B" -> "Volvo AB SER. B"
 function Pretty($name) {
   $name = [string]$name
-  if (-not $name -or $name -cne $name.ToUpperInvariant()) { return $name }
-  $parts = [regex]::Split($name, '(\s+)') | ForEach-Object {
-    if ($_.Length -gt 3 -and $_ -cmatch '^[A-ZÅÄÖÉÜ]') { $_.Substring(0, 1) + $_.Substring(1).ToLowerInvariant() } else { $_ }
+  if (-not $name) { return $name }
+  if ($name -ceq $name.ToUpperInvariant()) {
+    $parts = [regex]::Split($name, '(\s+|-)') | ForEach-Object {
+      if ($_.Length -gt 3 -and $_ -cmatch '^[A-ZÅÄÖÉÜ]') { $_.Substring(0, 1) + $_.Substring(1).ToLowerInvariant() } else { $_ }
+    }
+    $name = $parts -join ""
   }
-  return ($parts -join "")
+  return [regex]::Replace($name, '\b(INC|LTD|CORP)\b', [System.Text.RegularExpressions.MatchEvaluator] { param($m) $m.Value.Substring(0, 1) + $m.Value.Substring(1).ToLowerInvariant() })
 }
 
 # Svensk talformatering: 1 574,2 och −5,3
@@ -91,7 +94,11 @@ function Mkr($v, [switch]$Sign) {
 function BigSek($v, [switch]$Sign) {
   if ($null -eq $v) { return "–" }
   $v = [double]$v
-  $s = if ([math]::Abs($v) -ge 1e9) { (Fmt ($v / 1e9) 1) + " mdkr" } else { (Fmt ($v / 1e6) 0) + " mkr" }
+  $a = [math]::Abs($v)
+  if ($a -eq 0) { return "0 kr" }
+  # Samma som bigSek i app.js: en decimal under 100 mkr, och "<0,1 mkr" i stället för "0 mkr"
+  if ($a -gt 0 -and $a -lt 5e4) { return "<0,1 mkr" }
+  $s = if ($a -ge 1e9) { (Fmt ($v / 1e9) 1) + " mdkr" } elseif ($a -ge 1e8) { (Fmt ($v / 1e6) 0) + " mkr" } else { (Fmt ($v / 1e6) 1) + " mkr" }
   if ($Sign) { return Signed $s $v }; return $s
 }
 function PctChange($v) { if ($null -eq $v) { return "–" }; return Signed ((Fmt ($v * 100) 1) + " %") $v }
@@ -621,7 +628,7 @@ foreach ($s in $pageStocks) {
 
   $content = '<div class="page-head"><div class="crumbs"><a href="/aktier/">Aktier</a> / ' + (Esc $s.name) + '</div><div class="title-row"><h1>' + (Esc $s.name) + '</h1></div><p class="meta">' + ($metaParts -join " · ") + "</p></div>" +
     '<p class="lead">' + (Esc $lead) + "</p>" +
-    '<dl class="figures">' + (Fig "Fonder som äger" (Num0 $s.f2)) + (Fig "Fondernas innehav" (BigSek $s.val2)) + (Fig "Nettoköp $QL" $flowText) +
+    '<dl class="figures">' + (Fig "Fonder som äger" (Num0 $s.f2)) + (Fig "Fondernas innehav" $(if ($s.price) { BigSek $s.val2 } else { "–" })) + (Fig "Nettoköp $QL" $flowText) +
     (Fig "Δ antal aktier" (Colored $s.chg (PctChange $s.chg))) + (Fig "Nya fonder" (Num0 $s.nNew)) + (Fig "Avvecklat" (Num0 $s.nExit)) + "</dl>" +
     (Block "Största fondägare" (Table @("Fond", "Innehav (mkr)", "Förändring") $holderRows) "section-gap") +
     '<div class="grid-2 section-gap">' + (Block "Köpte mest $QL" (Table @("Fond", "Netto (mkr)") $buyRows) "") + (Block "Sålde mest $QL" (Table @("Fond", "Netto (mkr)") $sellRows) "") + "</div>" +
@@ -635,7 +642,7 @@ foreach ($s in $pageStocks) {
   $img = Image "aktie-$($s.slug)" $svg
 
   Page "aktie/$($s.slug)/" "aktie/$($s.isin)" "$($s.name) – vilka fonder äger aktien? | Fondinsyn" `
-    "$fundsText äger $($s.name) för $(BigSek $s.val2) ($asOf). Se vilka fonder som köper och säljer aktien, största ägare och historik sedan 2018." $img $content -Crumbs @("Aktier", "aktier/", $s.name, "aktie/$($s.slug)/")
+    "$fundsText äger $($s.name)$(if ($s.val2 -gt 0) { ' för ' + (BigSek $s.val2) }) ($asOf). Se vilka fonder som köper och säljer aktien, största ägare och historik sedan 2018." $img $content -Crumbs @("Aktier", "aktier/", $s.name, "aktie/$($s.slug)/")
 }
 Write-Host "  $($pageStocks.Count) aktiesidor"
 

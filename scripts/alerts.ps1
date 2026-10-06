@@ -35,8 +35,11 @@ function Plain($v) { (Sek $v).TrimStart("+") }
 # Samma som prettyName i app.js: "VOLVO AB SER. B" blir "Volvo AB SER. B"
 function Pretty($name) {
   $name = [string]$name
-  if (-not $name -or $name -cne $name.ToUpperInvariant()) { return $name }
-  return (($name -split '(\s+)' | ForEach-Object { if ($_.Length -gt 3) { $_.Substring(0, 1) + $_.Substring(1).ToLowerInvariant() } else { $_ } }) -join "")
+  if (-not $name) { return $name }
+  if ($name -ceq $name.ToUpperInvariant()) {
+    $name = ([regex]::Split($name, '(\s+|-)') | ForEach-Object { if ($_.Length -gt 3 -and $_ -cmatch '^[A-ZÅÄÖÉÜ]') { $_.Substring(0, 1) + $_.Substring(1).ToLowerInvariant() } else { $_ } }) -join ""
+  }
+  return [regex]::Replace($name, '\b(INC|LTD|CORP)\b', [System.Text.RegularExpressions.MatchEvaluator] { param($m) $m.Value.Substring(0, 1) + $m.Value.Substring(1).ToLowerInvariant() })
 }
 
 # ---------- Vilka aktier bevakas? ----------

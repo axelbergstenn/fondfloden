@@ -443,8 +443,8 @@ function OgSvg($title, $sub, $stats, $label, $bars, $line) {
   [void]$sb.Append('<rect width="1200" height="630" fill="#ffffff"/><rect width="1200" height="8" fill="#2f6bff"/>')
   # Loggan: "fondinsyn" i gemener med blå fyrkantig punkt. Texten slutar vid punkten (text-anchor end),
   # så att punkten hamnar rätt oavsett hur brett typsnittet blir.
-  [void]$sb.Append((TextEl 236 88 38 "#0b1f3a" "fondinsyn" ' font-weight="800" letter-spacing="-1.9" text-anchor="end"'))
-  [void]$sb.Append('<rect x="239.5" y="79" width="9" height="9" rx="2" fill="#2f6bff"/>')
+  [void]$sb.Append((TextEl 248 88 38 "#0b1f3a" "fondinsyn" ' font-weight="800" letter-spacing="-1.9" text-anchor="end"'))
+  [void]$sb.Append('<rect x="248.5" y="79" width="9" height="9" rx="2" fill="#2f6bff"/>')
   $ts = FitSize $title 64 40 1056 0.6
   [void]$sb.Append((TextEl 72 205 $ts "#1f2328" (Clip $title $ts 1056 0.6) ' font-weight="700"'))
   [void]$sb.Append((TextEl 72 255 28 "#59636e" (Clip $sub 28 1056 0.55) ""))

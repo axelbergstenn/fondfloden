@@ -93,7 +93,12 @@ function Build-Market {
 
 if (-not $SkipMarket) {
   Write-Host "Räntor: hämtar marknadsräntor från Riksbanken"
-  try { Build-Market } catch { Write-Host "  varning: Riksbanken svarade inte ($($_.Exception.Message))" }
+  try { Build-Market } catch {
+    # Riksbanken svarar inte: behåll gårdagens räntor från sajten, så att sidan inte saknar diagrammet
+    Write-Host "  varning: Riksbanken svarade inte ($($_.Exception.Message)), använder gårdagens räntor"
+    try { Invoke-WebRequest -Uri "https://www.fondinsyn.se/data/rates-market.json" -OutFile (Join-Path $OutDir "rates-market.json") -UseBasicParsing -TimeoutSec 60 }
+    catch { Write-Host "  varning: inga marknadsräntor i dag" }
+  }
 }
 
 # ---------------------------------------------------------------------------

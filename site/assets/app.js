@@ -2597,6 +2597,7 @@
       "<li>Utländska aktier visas om svenska fonder sammanlagt äger minst 20 mkr.</li>" +
       '<li><b>Räntepapper</b> (obligationer och certifikat) och <b>fondandelar</b> visas på fondsidan och under <a href="#/rantor">Räntor</a>. Emittenten läses ur värdepapperets namn, ' +
       "och papper som förfallit räknas inte som sålda. Marknadsräntorna kommer från Riksbanken.</li></ul>" +
+      '<p class="desc">Fondinsyn räknar antalet besök med GoatCounter, som inte använder kakor och inte sparar några personuppgifter.</p>' +
       "<h2>Uppdatering</h2><p>Datan hämtas automatiskt från Finansinspektionen varje dag. Blankningen ändras dagligen, fondinnehaven en gång per kvartal. Finansinspektionen publicerar kvartalets innehav ungefär tolv veckor efter kvartalsslut (Q2 2026, som slutade 30 juni, kom 21 september). FI publicerar ibland om äldre kvartal med rättelser, och de hämtas också automatiskt.</p>" +
       (m && m.src ? "<p>Källfiler för " + quarterLabel(state.q) + ": <code>" + esc(m.src[0]) + "</code> och <code>" + esc(m.src[1]) + "</code>.</p>" : "") +
       '<h2>Källa</h2><p><a href="https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" target="_blank" rel="noopener">Finansinspektionen – Fondinnehav per kvartal</a></p>' +
@@ -3037,6 +3038,7 @@
     // Mjuk övergång när man byter sida, men inte när samma sida ritas om efter att mer data laddats
     var routeKey = r.page + "/" + r.arg + "/" + r.arg2;
     if (html !== null && routeKey !== lastRouteKey) { app.classList.remove("fade-in"); void app.offsetWidth; app.classList.add("fade-in"); }
+    if (routeKey !== lastRouteKey) countVisit();
     lastRouteKey = routeKey;
     // Pilar mellan leden i brödsmulorna
     app.querySelectorAll(".crumbs").forEach(function (c) {
@@ -3057,6 +3059,19 @@
     $("marketSwitch").hidden = !MARKET_PAGES[r.page];
     renderSummary();
     if (search.open) runSearch();
+  }
+
+  // Besöksräknare (GoatCounter, utan kakor och utan personuppgifter). Sajten byter sida utan att ladda om,
+  // så varje sidbyte räknas här, med adressen efter # som sökväg (#/aktie/SE0000115446 blir /aktie/SE0000115446).
+  // Skriptet laddas asynkront, så den första sidvisningen väntar tills det finns.
+  function countVisit(tries) {
+    var gc = window.goatcounter;
+    if (!gc || !gc.count) {
+      if ((tries || 0) < 20) setTimeout(function () { countVisit((tries || 0) + 1); }, 250);
+      return;
+    }
+    var path = location.hash.replace(/^#/, "") || location.pathname;
+    try { gc.count({ path: path, title: document.title }); } catch (e) { /* räknaren får aldrig stoppa sajten */ }
   }
 
   function renderSummary() {

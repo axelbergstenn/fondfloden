@@ -2644,7 +2644,7 @@
     ["SECBREPOEFF", "Styrränta", "s1"], ["SEGVB2YC", "Statsobligation 2 år", "s2"],
     ["SEGVB10YC", "Statsobligation 10 år", "s3"], ["SEMB5YCACOMB", "Bostadsobligation 5 år", "s4"]
   ];
-  var rateState = { range: 3, q: "", cat: "" };
+  var rateState = { range: 5, q: "", cat: "" };
 
   function needRates(q) {
     q = q || state.q;
@@ -2769,7 +2769,7 @@
       });
       var rangeBtn = function (y, label) { return '<button type="button" class="seg-btn" data-rate-range="' + y + '" aria-pressed="' + (rateState.range === y) + '">' + label + "</button>"; };
       html += '<section class="block section-gap"><div class="block-head"><h2>Marknadsräntor</h2><div class="seg" role="group" aria-label="Period">' +
-        rangeBtn(1, "1 år") + rangeBtn(3, "3 år") + rangeBtn(8, "8 år") + '</div></div><div class="chart-card">' +
+        rangeBtn(1, "1 år") + rangeBtn(5, "5 år") + rangeBtn(10, "10 år") + rangeBtn(20, "20 år") + '</div></div><div class="chart-card">' +
         '<div class="legend">' + series.map(function (s) { return '<span class="legend-item"><span class="dot ' + s.cls + '"></span>' + esc(s.label) + "</span>"; }).join("") + "</div>" +
         chart(function (node) {
           FFCharts.lines(node, series, { unit: " %", format: function (v) { return nf2.format(v); }, tip: function (rows) {

@@ -63,7 +63,7 @@ $MarketSeries = [ordered]@{
 }
 
 function Build-Market {
-  $from = (Get-Date).AddYears(-8).ToString("yyyy-MM-dd")
+  $from = (Get-Date).AddYears(-20).AddDays(-14).ToString("yyyy-MM-dd")   # 20 år, för diagrammets längsta period
   $to = (Get-Date).ToString("yyyy-MM-dd")
   $parts = New-Object System.Collections.Generic.List[string]
   foreach ($id in $MarketSeries.Keys) {

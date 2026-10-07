@@ -120,6 +120,8 @@
         return w.length > 3 && /^[A-ZÅÄÖÉÜ]/.test(w) ? w.charAt(0) + w.slice(1).toLowerCase() : w;
       }).join("");
     }
+    // Tekniska tillägg från depåsystemen ("Ord Shs", "/new") tas bort
+    name = name.replace(/\s*\/(new|the)\s*$/i, "").replace(/\s+(ord(inary)?\.?\s+sh(ar)?e?s?|ord\.?|reg(istered)?\.?\s+shs?)\s*$/i, "");
     return name.replace(/\b(INC|LTD|CORP)\b/g, function (w) { return w.charAt(0) + w.slice(1).toLowerCase(); });
   }
   function store(key, value) {
@@ -438,7 +440,8 @@
     if (!t) return;
     var q = function (s) { return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     var lines = [t.cols.map(function (c) { return q(cellText(c.label)); }).join(";")];
-    t.rows.forEach(function (r, n) { lines.push(t.cols.map(function (c) { return q(cellText(c.cell(r, n))); }).join(";")); });
+    // En kolumn kan ange ett exakt värde för filen (csv), annars används texten i cellen
+    t.rows.forEach(function (r, n) { lines.push(t.cols.map(function (c) { var v = c.csv ? c.csv(r) : null; return q(v != null ? String(v) : cellText(c.cell(r, n))); }).join(";")); });
     var blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -865,8 +868,8 @@
         fig(termLink("avgift", "Förvaltningsavgift"), feeText(fi), fi.perf ? "+ prestationsbaserad avgift" : "") +
         fig(termLink("aktiv-risk", "Aktiv risk"), pctPlain(fi.ar), "Avvikelse mot index, 24 mån") +
         fig(termLink("standardavvikelse", "Standardavvikelse"), pctPlain(fi.sd), "24 månader") +
-        fig("Svenska aktier", bigSek(seF ? seF.val : 0)) +
-        fig("Utländska aktier", hasWorld ? bigSek(wF ? wF.val : 0) : "…") + "</dl>";
+        fig("Svenska aktier", seF && seF.val ? bigSek(seF.val) : "–") +
+        fig("Utländska aktier", !hasWorld ? "…" : wF && wF.val ? bigSek(wF.val) : "–") + "</dl>";
       var perfHtml = perfBlock(id);
       var prof = needProfiles() ? fundProfile(id) : null;
       if (prof) {
@@ -1674,6 +1677,8 @@
       return getJSON("data/offers.json").then(function (d) {
         d.offers.forEach(function (o) {
           o.name = cleanTarget(o.target);
+          // "Ambea AB ( publ )" blir "Ambea AB (publ)"
+          o.bidder = String(o.bidder || "").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")").replace(/\s+/g, " ").trim();
           o.holders = (o.holders || []).map(function (h) { return { id: h[0], name: h[1], v: h[2], w: h[3] }; });
           o.held = o.holders.reduce(function (a, h) { return a + h.v; }, 0);
         });
@@ -1935,7 +1940,8 @@
     return r.kind === "buy" ? '<span class="label up">Köp</span>' : r.kind === "sell" ? '<span class="label down">Sälj</span>' : '<span class="label">' + esc(r.nature) + "</span>";
   }
   function insiderValue(r) {
-    if (r.sek != null) return '<span class="' + (r.kind === "sell" ? "neg" : r.kind === "buy" ? "pos" : "") + '">' + kr(r.sek) + "</span>";
+    // Stora belopp i mkr ("234,6 mkr") så att kolumnen går att läsa av, exakt belopp när man håller muspekaren över
+    if (r.sek != null) return '<span class="' + (r.kind === "sell" ? "neg" : r.kind === "buy" ? "pos" : "") + '" title="' + esc(kr(r.sek)) + '">' + (Math.abs(r.sek) >= 1e6 ? bigSek(r.sek) : kr(r.sek)) + "</span>";
     return r.vol != null && r.price != null ? nf0.format(r.vol * r.price) + " " + esc(r.cur) : "–";
   }
   function issuerCell(r, sub) {
@@ -1984,7 +1990,7 @@
     var fundFlow = function (e) { var s = ds.byIsin[e.r.isin]; return s && s.netFlow != null ? s.flow : null; };
     var compCols = function (sold) {
       return [
-        { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (e) { return issuerCell(e.r, (sold ? "Sålt " + bigSek(e.sell) : "Köpt " + bigSek(e.buy)) + " · " + int(e.nBuyers) + " köpare"); } },
+        { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (e) { return issuerCell(e.r, sold ? "Sålt " + bigSek(e.sell) : "Köpt " + bigSek(e.buy) + " · " + int(e.nBuyers) + " köpare"); } },
         { key: "net", label: "Netto insiders", cell: function (e) { return '<span class="' + cls(e.net) + '">' + bigSek(e.net, true) + "</span>"; }, value: function (e) { return e.net; } },
         { key: "n", label: "Köpare", hideSm: true, cell: function (e) { return int(e.nBuyers); }, value: function (e) { return e.nBuyers; } },
         { key: "f", label: "Fondernas nettoköp " + quarterLabel(state.q), cell: function (e) { var v = fundFlow(e); return v == null ? "–" : '<span class="' + cls(v) + '">' + bigSek(v, true) + "</span>"; },
@@ -2006,10 +2012,10 @@
     });
     var seg = function (v, label) { return '<button type="button" class="seg-btn" data-ins-kind="' + v + '" aria-pressed="' + (f.kind === v) + '">' + label + "</button>"; };
     var cols = [
-      { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (r) { return issuerCell(r, personText(r) + " · " + insiderValue(r)); }, value: function (r) { return r.issuer; } },
+      { key: "b", label: "Bolag", align: "l", cls: "name", cell: function (r) { return issuerCell(r, personText(r) + " · " + insiderValue(r)); }, value: function (r) { return r.issuer; }, csv: function (r) { return r.issuer; } },
       { key: "p", label: "Person", align: "l", hideSm: true, cell: function (r) { return personText(r) + '<span class="sub">' + esc(r.role) + "</span>"; }, value: function (r) { return r.person; } },
       { key: "k", label: "Typ", align: "l", cell: function (r) { return insiderKind(r); } },
-      { key: "v", label: "Värde", hideSm: true, cell: insiderValue, value: function (r) { return r.sek; } },
+      { key: "v", label: "Värde", hideSm: true, cell: insiderValue, value: function (r) { return r.sek; }, csv: function (r) { return r.sek == null ? "" : Math.round(r.sek); } },
       { key: "d", label: "Datum", cls: "muted", cell: function (r) { return esc(r.tx); }, value: function (r) { return r.tx; } }
     ];
     html += '<section class="block section-gap"><div class="block-head"><h2>Senaste affärerna</h2><div class="seg" role="group" aria-label="Typ av affär">' +
@@ -2465,7 +2471,7 @@
       fig("Nettoköp", c.hasNet ? '<span class="' + cls(c.net) + '">' + bigSek(c.net, true) + "</span>" : "–", marketWord() + " aktier") + "</dl>" + shortNote +
       '<div class="grid-2 section-gap">' +
       block("Köpte mest", "Summerat över bolagets alla fonder", table("co-buy", tradeCols, buys, { static: true, limit: 10, expand: true, empty: "Inga köp." })) +
-      block("Sålde mest", "", table("co-sell", tradeCols, sells, { static: true, limit: 10, expand: true, empty: "Inga sälj." })) + "</div>" +
+      block("Sålde mest", "Samma kvartal, alla fonder", table("co-sell", tradeCols, sells, { static: true, limit: 10, expand: true, empty: "Inga sälj." })) + "</div>" +
       '<section class="block section-gap"><div class="block-head"><h2>Bolagets fonder</h2></div>' +
       table("co-funds-" + state.market, fundCols, c.funds, { sort: { col: "aum", dir: -1 } }) + "</section>";
   }

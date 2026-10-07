@@ -154,9 +154,14 @@ p { margin: 0; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
 .topbar-right > :not(.search-btn) { flex: none; }
 
-.search-btn { display: inline-flex; align-items: center; gap: 10px; font: inherit; font-size: 14px; color: var(--fg-muted); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 10px; height: 40px; padding: 0 10px 0 12px; cursor: pointer; min-width: 0; flex: 0 1 300px; overflow: hidden; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
+.search-btn { display: inline-flex; align-items: center; gap: 10px; font: inherit; font-size: 14px; color: var(--fg-muted); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 10px; height: 40px; padding: 0 10px 0 12px; cursor: pointer; min-width: 0; flex: 0 1 340px; overflow: hidden; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
 .search-btn:hover { color: var(--fg-soft); border-color: var(--border-strong); background: var(--bg); }
-.search-btn kbd { margin-left: auto; }
+.search-btn { container-type: inline-size; }
+.search-btn svg { flex: none; }
+.search-btn-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.search-btn kbd { flex: none; margin-left: auto; }
+/* Kortkommandot visas bara när rutan är bred nog för hela texten */
+@container (max-width: 300px) { .search-btn kbd { display: none; } }
 
 .select-sm, .input { font: inherit; font-size: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; height: 40px; padding: 0 12px; min-width: 0; }
 .select-sm { padding-right: 32px; appearance: none; -webkit-appearance: none; background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23667085' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center; cursor: pointer; }
@@ -248,7 +253,7 @@ th:last-child, td:last-child { padding-right: 18px; }
 th.l, td.l { text-align: left; }
 /* Textkolumner (person, status) får radbrytas, siffror och datum stannar på en rad */
 td.l:not(.muted) { white-space: normal; min-width: 8em; }
-thead th { background: var(--bg-subtle); font-weight: 600; font-size: 12px; color: var(--fg-muted); letter-spacing: 0.01em; border-bottom: 1px solid var(--border); position: sticky; top: 0; white-space: normal; vertical-align: bottom; }
+thead th { background: var(--bg-subtle); font-weight: 600; font-size: 12px; color: var(--fg-muted); letter-spacing: 0.01em; border-bottom: 1px solid var(--border); position: sticky; top: 0; vertical-align: bottom; }
 thead th button { all: unset; cursor: pointer; }
 thead th button:hover { color: var(--fg); }
 thead th button:focus-visible { outline: 2px solid var(--brand); }
@@ -261,8 +266,10 @@ td.name { max-width: 340px; min-width: 9em; white-space: normal; }
 td.name > a, td.name > .nm-plain { color: var(--fg); font-weight: 600; display: block; }
 td.name > a { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 td.name > a:hover { color: var(--link); }
-td.name .sub { font-size: 12px; color: var(--fg-muted); font-weight: 400; margin-top: 2px; }
-td.name .sub:not(.show-sm) { display: block; }
+td .sub { font-size: 12px; color: var(--fg-muted); font-weight: 400; margin-top: 2px; }
+td .sub:not(.show-sm) { display: block; }
+/* Högst två rader under namnet, så att långa fondlistor inte gör raderna höga */
+td .sub { line-height: 1.4; max-height: 2.8em; overflow: hidden; }
 td.muted { color: var(--fg-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 td.empty { text-align: center; color: var(--fg-muted); padding: 28px; white-space: normal; }
 .show-sm { display: none; }
@@ -282,6 +289,10 @@ td.empty { text-align: center; color: var(--fg-muted); padding: 28px; white-spac
   .show-sm { display: block; }
   .show-sm-i { display: inline; }
   .bar { display: none; }
+}
+/* Rubriker får radbrytas först när tabellen är riktigt smal */
+@container (max-width: 480px) {
+  thead th { white-space: normal; }
 }
 /* Telefonbredd: lite tätare så att tre–fyra kolumner alltid får plats */
 @container (max-width: 420px) {
@@ -562,9 +573,6 @@ a.term:hover { color: var(--link); border-bottom-style: solid; }
 .topbar-inner { gap: 18px; }
 .mainnav a, .more-btn { padding: 0 9px; }
 .mainnav a[aria-current="page"]::after, .more-btn.active::after { left: 9px; right: 9px; }
-@media (max-width: 1360px) {
-  .search-btn kbd { display: none; }
-}
 
 /* ---------- Mellanstora skärmar: menyn på egen rad ---------- */
 

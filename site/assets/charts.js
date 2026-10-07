@@ -290,7 +290,7 @@
     if (!narrow) {
       ends.sort(function (a, b) { return a.y - b.y; });
       for (var k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 14) ends[k].y = ends[k - 1].y + 14;
-      ends.forEach(function (e) { text(ctx.svg, ctx.w - m.r + 8, e.y + 4, fmtTick(e.p.v) + (opts.unit || ""), "c-label"); });
+      ends.forEach(function (e) { text(ctx.svg, ctx.w - m.r + 8, e.y + 4, (opts.format ? opts.format(e.p.v) : fmtTick(e.p.v)) + (opts.unit || ""), "c-label"); });
     }
 
     var cross = el("line", { y1: m.t, y2: ctx.h - m.b, "class": "c-cross", visibility: "hidden" }, ctx.svg);

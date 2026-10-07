@@ -2772,7 +2772,7 @@
         rangeBtn(1, "1 år") + rangeBtn(3, "3 år") + rangeBtn(8, "8 år") + '</div></div><div class="chart-card">' +
         '<div class="legend">' + series.map(function (s) { return '<span class="legend-item"><span class="dot ' + s.cls + '"></span>' + esc(s.label) + "</span>"; }).join("") + "</div>" +
         chart(function (node) {
-          FFCharts.lines(node, series, { unit: " %", tip: function (rows) {
+          FFCharts.lines(node, series, { unit: " %", format: function (v) { return nf2.format(v); }, tip: function (rows) {
             return "<b>" + dateText(rows[0].p.d) + "</b>" + rows.map(function (x) {
               return '<div class="tip-row"><span><span class="dot ' + x.s.cls + '"></span>' + esc(x.s.label) + "</span><b>" + nf2.format(x.p.v) + " %</b></div>";
             }).join("");

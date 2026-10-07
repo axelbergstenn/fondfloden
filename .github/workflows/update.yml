@@ -62,6 +62,12 @@ jobs:
           $force = "${{ inputs.force }}" -eq "true"
           ./scripts/build-data.ps1 -History 4 -Force:$force
 
+      # Fondernas räntepapper och fondandelar (byggs om när FI publicerar nytt) och Riksbankens räntor (varje dag)
+      - name: Bygg räntedata
+        shell: pwsh
+        continue-on-error: true
+        run: ./scripts/build-rates.ps1
+
       # Blankning byggs varje gång men sparas inte i repot (den ändras dagligen)
       - name: Hämta blankning från FI
         shell: pwsh

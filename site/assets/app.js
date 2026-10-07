@@ -790,9 +790,10 @@
     var coOpts = Object.keys(cos).sort(function (a, b) { return a.localeCompare(b, "sv"); }).map(function (x) {
       return '<option value="' + esc(x) + '"' + (fundFilter.co === x ? " selected" : "") + ">" + esc(x) + "</option>";
     }).join("");
-    var typeOpts = [["", "Alla fonder"], ["active", "Aktiva aktiefonder"], ["index", "Indexfonder"], ["closet", "Indexnära med hög avgift"]].map(function (o) {
-      return '<option value="' + o[0] + '"' + (fundFilter.type === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
-    }).join("");
+    var opt = function (o) { return '<option value="' + o[0] + '"' + (fundFilter.type === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; };
+    var typeOpts = opt(["", "Alla fonder"]) +
+      '<optgroup label="Aktiefonder">' + [["equity", "Alla aktiefonder"], ["active", "Aktiva aktiefonder"], ["index", "Indexfonder"], ["closet", "Indexnära med hög avgift"]].map(opt).join("") + "</optgroup>" +
+      '<optgroup label="Andra fonder">' + [["rante", "Räntefonder"], ["bland", "Blandfonder"], ["fof", "Fondandelsfonder"]].map(opt).join("") + "</optgroup>";
     return '<div class="page-head"><div class="title-row"><h1>Fonder</h1><a class="btn" href="#/fondbolag">Alla fondbolag</a></div><p class="meta">Alla svenska värdepappersfonder, ' + quarterLabel(state.q) + ". Köp och sälj avser " + marketWord() + " aktier.</p></div>" +
       '<div class="toolbar">' +
       '<input class="input" type="search" id="fundSearch" placeholder="Sök fond eller fondbolag" value="' + esc(fundFilter.q) + '" autocomplete="off">' +
@@ -816,10 +817,19 @@
     var ds = marketDs();
     if (!ds || !$("fundTable")) return;
     var q = fundFilter.q.trim().toLowerCase();
+    // Fondtyp (ränte-, bland- och fondandelsfonder) bygger på räntedatan, som laddas vid behov
+    var KINDS = { equity: 1, rante: 1, bland: 1, fof: 1 }, kind = KINDS[fundFilter.type] ? fundFilter.type : "";
+    if (kind && !needRates()) {
+      $("fundTable").innerHTML = failed("rates-" + state.q) ? '<p class="notice">Fondtyperna kunde inte laddas för ' + quarterLabel(state.q) + ".</p>" : loadingBlock();
+      $("fundCount").textContent = "";
+      return;
+    }
+    if (kind === "rante" || kind === "fof") { renderKindTable(kind, q); return; }
     var rows = fundList().filter(function (f) {
       if (state.excludeIndex && f.isIndex) return false;
       if (fundFilter.co && f.co !== fundFilter.co) return false;
-      if (fundFilter.type && fundCategory(f) !== fundFilter.type) return false;
+      if (kind) { if (fundKind(f) !== kind) return false; }
+      else if (fundFilter.type && fundCategory(f) !== fundFilter.type) return false;
       return !q || f.name.toLowerCase().indexOf(q) >= 0 || f.co.toLowerCase().indexOf(q) >= 0;
     }).map(function (f) { return { f: f, m: ds.fundById[f.id] }; });
     var mv = function (r) { return r.m ? r.m.val : 0; };
@@ -841,7 +851,40 @@
     $("fundTable").innerHTML = table("funds-" + state.market, cols, rows, { csv: true, sort: { col: "mv", dir: -1 }, empty: "Inga fonder matchar filtret." });
     $("fundCount").textContent = int(rows.length) + " fonder";
   }
-
+  // Räntefonder och fondandelsfonder får egna kolumner
+  function renderKindTable(kind, q) {
+    var r = ratesData();
+    var rows = fundList().filter(function (f) {
+      if (fundKind(f) !== kind) return false;
+      if (fundFilter.co && f.co !== fundFilter.co) return false;
+      return !q || f.name.toLowerCase().indexOf(q) >= 0 || f.co.toLowerCase().indexOf(q) >= 0;
+    });
+    var cols = kind === "rante" ? rateFundCols() : [
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (f) { return nameCell(fundHref(f), f.name, esc(f.co) + " · " + feeText(f)); }, value: function (f) { return f.name; } },
+      { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return companyLink(f.co); }, value: function (f) { return f.co; } },
+      { key: "aum", label: "Förmögenhet (mkr)", cell: function (f) { return mkr(f.aum); }, value: function (f) { return f.aum; } },
+      { key: "fee", label: "Avgift", hideSm: true, cell: function (f) { return f.feeMax == null ? "–" : nf2.format(f.feeMax) + " %"; }, value: function (f) { return f.feeMax; } },
+      { key: "u", label: "I andra fonder", hideSm: true, cell: function (f) { var x = r.funds[f.id]; return x && f.aum ? pctShare(x.unit / f.aum) : "–"; }, value: function (f) { var x = r.funds[f.id]; return x && f.aum ? x.unit / f.aum : null; } },
+      { key: "flow", label: "Netto (mkr)", cell: function (f) { var x = r.funds[f.id]; return !x || x.unitFlow == null ? "–" : '<span class="' + cls(x.unitFlow) + '">' + mkr(x.unitFlow, true) + "</span>"; }, value: function (f) { var x = r.funds[f.id]; return x ? x.unitFlow : null; } }
+    ];
+    $("fundTable").innerHTML = table("funds-" + kind, cols, rows, { csv: true, sort: { col: "aum", dir: -1 }, empty: "Inga fonder matchar filtret." }) +
+      '<p class="desc section-gap-sm">' + (kind === "rante" ? "Räntefonder har minst hälften av förmögenheten i obligationer och certifikat enligt rapporten till Finansinspektionen. Netto är köp minus sälj av räntepapper under kvartalet." :
+        "Fondandelsfonder har minst hälften av förmögenheten i andra fonder. Netto är köp minus sälj av fondandelar under kvartalet.") + "</p>";
+    $("fundCount").textContent = int(rows.length) + " fonder";
+  }
+  // De två största tillgångsslagen i fonden (aktier, räntepapper eller fondandelar) som nyckeltal
+  function assetFigs(id, seF, wF, hasWorld) {
+    var r = ratesData(), x = r && r.funds[id];
+    var items = [
+      { label: "Svenska aktier", v: seF ? seF.val || 0 : 0, ready: true },
+      { label: "Utländska aktier", v: wF ? wF.val || 0 : 0, ready: hasWorld },
+      { label: "Räntepapper", v: x ? x.bond : 0, ready: !!r },
+      { label: "Fondandelar", v: x ? x.unit : 0, ready: !!r }
+    ];
+    var show = items.filter(function (i) { return i.v > 0; }).sort(function (a, b) { return b.v - a.v; }).slice(0, 2);
+    items.slice(0, 2).forEach(function (i) { if (show.length < 2 && show.indexOf(i) < 0) show.push(i); });
+    return show.map(function (i) { return fig(i.label, !i.ready ? "…" : i.v ? bigSek(i.v) : "–"); }).join("");
+  }
   // ---------- Fond ----------
 
   function viewFund(id, sub) {
@@ -860,7 +903,7 @@
       '</h1></div><div class="actions">' + starBtn("funds", id) +
       '<a class="btn" href="#/jamfor/' + encodeURIComponent(id) + '">Jämför</a>' + shareBtn("fond", id) +
       (d.fi[id] ? '<button type="button" class="btn" data-pf-add="' + esc(id) + '">' + (inPortfolio(id) ? "I din portfölj ✓" : "+ Min portfölj") + "</button>" : "") +
-      '</div></div><p class="meta">' + companyLink(f.co) + (f.bench ? " · Jämförelseindex: " + esc(f.bench) : "") + "</p></div>";
+      '</div></div><p class="meta">' + (d.fi[id] && ratesData() ? esc(KIND_LABEL[fundKind(d.fi[id])]) + " · " : "") + companyLink(f.co) + (f.bench ? " · Jämförelseindex: " + esc(f.bench) : "") + "</p></div>";
 
     if (d.fi[id]) {
       var fi = d.fi[id];
@@ -868,8 +911,7 @@
         fig(termLink("avgift", "Förvaltningsavgift"), feeText(fi), fi.perf ? "+ prestationsbaserad avgift" : "") +
         fig(termLink("aktiv-risk", "Aktiv risk"), pctPlain(fi.ar), "Avvikelse mot index, 24 mån") +
         fig(termLink("standardavvikelse", "Standardavvikelse"), pctPlain(fi.sd), "24 månader") +
-        fig("Svenska aktier", seF && seF.val ? bigSek(seF.val) : "–") +
-        fig("Utländska aktier", !hasWorld ? "…" : wF && wF.val ? bigSek(wF.val) : "–") + "</dl>";
+        assetFigs(id, seF, wF, hasWorld) + "</dl>";
       var perfHtml = perfBlock(id);
       var prof = needProfiles() ? fundProfile(id) : null;
       if (prof) {
@@ -886,58 +928,84 @@
       html += perfHtml;
     }
 
-    // Räntefonder och fondandelsfonder äger inga aktier direkt: förklara i stället för att visa tomma flikar
-    if (hasWorld && !(seF && seF.h.length) && !(wF && wF.h.length)) {
-      return html + '<p class="notice section-gap">Fonden ägde inga aktier direkt vid ' + quarterLabel(state.q) + ". Den placerar troligen i räntepapper eller i andra fonder, " +
-        "och sådana innehav finns inte med i Fondinsyns data.</p>";
+    // Räntepapper och fondandelar (data/<kvartal>-rates.json och data/rf/<id>.json)
+    var hasRates = needRates();
+    var rx = hasRates && ratesData() ? ratesData().funds[id] : null;
+    var hasBonds = !!(rx && rx.bond > 0), hasUnits = !!(rx && rx.unit > 0);
+    var rrows = (hasBonds || hasUnits || (rx && rx.n)) && needFundRates(id) ? fundBondRows(id) : null;
+    var hasStocks = !!((seF && seF.h.length) || (wF && wF.h.length));
+    if (hasWorld && (hasRates || failed("rates-" + state.q)) && !hasStocks && !hasBonds && !hasUnits) {
+      return html + '<p class="notice section-gap">Fonden ägde inga aktier, räntepapper eller fondandelar enligt rapporten för ' + quarterLabel(state.q) +
+        ". Den består troligen av likvida medel och derivat.</p>";
     }
 
-    // Flikar: alla innehav, eller bara kvartalets affärer (köp och sälj) i svenska och utländska aktier
+    // Flikar: alla innehav, eller bara kvartalets affärer (köp och sälj)
     if (state.fundTabFor !== id) { state.fundTabFor = id; state.fundTab = sub === "affarer" ? "trades" : "holdings"; }
     var tabBtn = function (v, label) { return '<button type="button" class="tab" role="tab" data-fund-tab="' + v + '" aria-selected="' + (state.fundTab === v) + '">' + label + "</button>"; };
     html += '<div class="tabs section-gap" role="tablist">' + tabBtn("holdings", "Innehav") + tabBtn("trades", "Alla affärer " + quarterLabel(state.q)) + "</div>";
-    if (state.fundTab === "trades") return html + fundTradesView(f, seF, hasWorld ? wF : null, wds, hasWorld, d.meta);
-    html += fundHoldings(f, seF, "Svenska aktier", d.se, d.meta);
-    if (!hasWorld) html += '<section class="block section-gap"><div class="block-head"><h2>Utländska aktier</h2></div>' + (failed("world-" + state.q) ? errorBlock() : loadingBlock()) + "</section>";
-    else if (wF) html += fundHoldings(f, wF, "Utländska aktier", wds, d.meta);
-    return html;
+    if (state.fundTab === "trades") return html + fundTradesView(f, seF, hasWorld ? wF : null, wds, hasWorld, d.meta, rx, rrows);
+    // Delarna i storleksordning: en räntefond visar räntepappren först, en aktiefond aktierna
+    var parts = [];
+    if (seF && seF.h.length) parts.push({ v: seF.val || 0, html: fundHoldings(f, seF, "Svenska aktier", d.se, d.meta) });
+    if (!hasWorld) parts.push({ v: -1, html: '<section class="block section-gap"><div class="block-head"><h2>Utländska aktier</h2></div>' + (failed("world-" + state.q) ? errorBlock() : loadingBlock()) + "</section>" });
+    else if (wF && wF.h.length) parts.push({ v: wF.val || 0, html: fundHoldings(f, wF, "Utländska aktier", wds, d.meta) });
+    if (hasBonds) parts.push({ v: rx.bond, html: fundBondSection(f, rx, rrows) });
+    if (hasUnits) parts.push({ v: rx.unit, html: fundUnitSection(f, rx, rrows) });
+    parts.sort(function (a, b) { return b.v - a.v; });
+    return html + parts.map(function (p) { return p.html; }).join("");
   }
 
-  // Alla köp och sälj en fond gjort under kvartalet, svenska och utländska aktier tillsammans
+  // Alla köp och sälj en fond gjort under kvartalet: aktier, räntepapper och fondandelar
   var fundTradeFilter = "all";
-  function fundTradesView(info, seF, wF, wds, hasWorld, meta) {
+  function fundTradesView(info, seF, wF, wds, hasWorld, meta, rx, rrows) {
     var rows = [];
-    [[seF, quarterData().se, "Sverige"], [wF, wds, "Utland"]].forEach(function (x) {
+    [[seF, quarterData().se, "Svenska aktier"], [wF, wds, "Utländska aktier"]].forEach(function (x) {
       var f = x[0], ds = x[1];
       if (!f || !f.both || !ds) return;
       f.h.forEach(function (r) {
         var s = ds.stocks[r[0]], s1 = r[1] || 0, s2 = r[2] || 0;
-        if (s1 !== s2) rows.push({ s: s, s1: s1, s2: s2, d: (s2 - s1) * s.price, m: x[2] });
+        if (s1 !== s2) rows.push({ name: s.name, href: stockHref(s), s1: s1, s2: s2, d: (s2 - s1) * s.price, m: x[2], n: true });
       });
     });
+    if (rrows) {
+      rrows.b.forEach(function (b) {
+        if (b.matured || b.flow == null || !Math.round(b.flow / 1e3) || b.n1 === b.n2) return;
+        rows.push({ name: b.issuer, href: b.key ? issuerHref(b.key) : null, sub: b.raw, s1: b.n1, s2: b.n2, d: b.flow, m: "Räntepapper", n: true });
+      });
+      rrows.u.forEach(function (u) {
+        if (u.flow == null || !Math.round(u.flow / 1e3)) return;
+        var t = u.target && quarterData().fi[u.target];
+        rows.push({ name: u.name, href: t ? fundHref(t) : null, s1: u.v1, s2: u.v2, d: u.flow, m: "Fondandelar", n: false });
+      });
+    }
     var missing = seF && !seF.both;
+    var waiting = (rx && (rx.bond > 0 || rx.unit > 0) && !rrows) || !hasWorld;
     if (!rows.length) {
-      return '<p class="notice">' + (missing ? "Fonden saknas i rapporten för " + quarterLabel(meta.prevId) + ", så affärerna kan inte räknas ut." : "Inga affärer i aktier under kvartalet.") + "</p>";
+      if (waiting) return loadingBlock();
+      return '<p class="notice">' + (missing ? "Fonden saknas i rapporten för " + quarterLabel(meta.prevId) + ", så affärerna kan inte räknas ut." : "Inga affärer under kvartalet.") + "</p>";
     }
     var buys = rows.filter(function (r) { return r.d > 0; }), sells = rows.filter(function (r) { return r.d < 0; });
     var sum = function (l) { return l.reduce(function (a, r) { return a + r.d; }, 0); };
     var ft = fundTradeFilter;
     var list = ft === "buy" ? buys : ft === "sell" ? sells : rows;
     var seg = function (v, label) { return '<button type="button" class="seg-btn" data-fund-trades="' + v + '" aria-pressed="' + (ft === v) + '">' + label + "</button>"; };
+    var nameOf = function (r) { return r.href ? '<a href="' + r.href + '">' + esc(r.name) + "</a>" : '<span class="nm-plain">' + esc(r.name) + "</span>"; };
     var cols = [
-      { key: "name", label: "Aktie", align: "l", cls: "name", cell: function (r) { return nameCell(stockHref(r.s), r.s.name, changeLabel(r.s1, r.s2) + " " + mkr(r.d, true) + " mkr"); }, value: function (r) { return r.s.name; } },
+      { key: "name", label: "Innehav", align: "l", cls: "name", cell: function (r) {
+        return nameOf(r) + (r.sub ? '<span class="sub">' + esc(r.sub) + "</span>" : "") + '<span class="sub show-sm">' + changeLabel(r.s1, r.s2) + " " + esc(r.m) + "</span>";
+      }, value: function (r) { return r.name; } },
       { key: "chg", label: "Ändring", align: "l", hideSm: true, cell: function (r) { return changeLabel(r.s1, r.s2); } },
-      { key: "n", label: "Antal före och efter", hideSm: true, cell: function (r) { return int(r.s1) + " → " + int(r.s2); } },
+      { key: "n", label: "Antal före och efter", hideSm: true, cell: function (r) { return r.n ? int(r.s1) + " → " + int(r.s2) : "–"; } },
       { key: "d", label: "Förändring (mkr)", cell: function (r) { return '<span class="' + cls(r.d) + '">' + mkr(r.d, true) + "</span>"; }, value: function (r) { return r.d; } },
-      { key: "m", label: "Marknad", hideSm: true, cls: "muted", cell: function (r) { return r.m; }, value: function (r) { return r.m; } }
+      { key: "m", label: "Typ", align: "l", hideSm: true, cls: "muted", cell: function (r) { return esc(r.m); }, value: function (r) { return r.m; } }
     ];
     return '<section class="block"><div class="block-head"><h2>Köp och sälj ' + quarterLabel(state.q) + '</h2><div class="seg" role="group" aria-label="Typ av affär">' +
       seg("all", "Alla") + seg("buy", "Köp") + seg("sell", "Sälj") + "</div></div>" +
       '<p class="desc">' + int(buys.length) + " köp för " + mkr(sum(buys)) + " mkr och " + int(sells.length) + " sälj för " + mkr(-sum(sells)) + " mkr, jämfört med " + quarterLabel(meta.prevId) + "." +
-      (hasWorld ? "" : " Utländska aktier laddas…") + "</p>" +
+      (rrows && rrows.b.some(function (b) { return b.matured; }) ? " Räntepapper som förfallit räknas inte som sålda." : "") +
+      (waiting ? " Fler innehav laddas…" : "") + "</p>" +
       table("fund-trades-" + info.id + "-" + ft, cols, list, { sort: { col: "d", dir: ft === "sell" ? 1 : -1 }, csv: true }) + "</section>";
   }
-
   function fundHoldings(info, f, title, ds, meta) {
     if (!f) return "";
     var rows = f.h.map(function (r) {
@@ -1556,6 +1624,7 @@
     input.focus();
     needSearchNames();
     needGlossary();
+    needRates();
   }
   function closeSearch() {
     search.open = false;
@@ -1607,12 +1676,18 @@
       GLOSSARY.filter(function (t) { return scoreMatch(t[1], q) >= 0; }).slice(0, 3).forEach(function (t) {
         items.push({ kind: "Ordlista", label: t[1], sub: t[2].slice(0, 70) + "…", href: "#/ordlista/" + t[0] });
       });
+      // Emittenter av obligationer (laddas när sökrutan öppnas, se openSearch)
+      var rd = ratesData();
+      if (rd) {
+        rd.issuers.filter(function (i) { return i.v2 > 0 && scoreMatch(i.name, q) >= 0; }).sort(function (a, b) { return scoreMatch(a.name, q) - scoreMatch(b.name, q) || b.v2 - a.v2; })
+          .slice(0, 4).forEach(function (i) { items.push({ kind: "Obligationer", label: i.name, sub: CAT_LABEL[i.cat] + " · " + bigSek(i.v2) + " hos fonderna", href: issuerHref(i.key) }); });
+      }
       if (state.shorts) {
         holdersNow().filter(function (h) { return scoreMatch(h.name, q) >= 0; }).slice(0, 4).forEach(function (h) {
           items.push({ kind: "Blankare", label: h.name, sub: h.positions.length + " aktier blankade", href: holderHref(h.name) });
         });
       }
-      var pages = [["Fondbolag", "#/fondbolag"], ["Ordlista och vanliga frågor", "#/ordlista"], ["Blankning", "#/blankning"], ["Blankare", "#/blankare"], ["Kvartalsrapport", "#/rapport"], ["Uppköp", "#/uppkop"], ["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
+      var pages = [["Räntor", "#/rantor"], ["Räntefonder", "#/fonder/rantefonder"], ["Fondbolag", "#/fondbolag"],["Ordlista och vanliga frågor", "#/ordlista"], ["Blankning", "#/blankning"], ["Blankare", "#/blankare"], ["Kvartalsrapport", "#/rapport"], ["Uppköp", "#/uppkop"], ["Avgiftskollen", "#/avgifter"], ["Kända förvaltare", "#/forvaltare"], ["Min fondportfölj", "#/portfolj"], ["Jämför fonder", "#/jamfor"], ["Om datan", "#/om"], ["Kontakt", "#/kontakt"]];
       pages.forEach(function (pg) { if (scoreMatch(pg[0], q) >= 0) items.push({ kind: "Sidor", label: pg[0], sub: "", href: pg[1] }); });
     }
     search.items = items;
@@ -2519,7 +2594,9 @@
       "<li>Vid aktiesplit justeras förra kvartalets antal när de flesta fonder visar samma förändringskvot.</li>" +
       "<li>Indexfonder identifieras på namnet. Deras affärer speglar oftast in- och utflöden i fonden snarare än aktiva beslut.</li>" +
       "<li><b>Köpsviter</b> räknas på historiken sedan 2018. Kvartal med nettoköp under 0,5 mkr räknas inte.</li>" +
-      "<li>Utländska aktier visas om svenska fonder sammanlagt äger minst 20 mkr. Obligationer och fondandelar är borttagna.</li></ul>" +
+      "<li>Utländska aktier visas om svenska fonder sammanlagt äger minst 20 mkr.</li>" +
+      '<li><b>Räntepapper</b> (obligationer och certifikat) och <b>fondandelar</b> visas på fondsidan och under <a href="#/rantor">Räntor</a>. Emittenten läses ur värdepapperets namn, ' +
+      "och papper som förfallit räknas inte som sålda. Marknadsräntorna kommer från Riksbanken.</li></ul>" +
       "<h2>Uppdatering</h2><p>Datan hämtas automatiskt från Finansinspektionen varje dag. Blankningen ändras dagligen, fondinnehaven en gång per kvartal. Finansinspektionen publicerar kvartalets innehav ungefär tolv veckor efter kvartalsslut (Q2 2026, som slutade 30 juni, kom 21 september). FI publicerar ibland om äldre kvartal med rättelser, och de hämtas också automatiskt.</p>" +
       (m && m.src ? "<p>Källfiler för " + quarterLabel(state.q) + ": <code>" + esc(m.src[0]) + "</code> och <code>" + esc(m.src[1]) + "</code>.</p>" : "") +
       '<h2>Källa</h2><p><a href="https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" target="_blank" rel="noopener">Finansinspektionen – Fondinnehav per kvartal</a></p>' +
@@ -2544,9 +2621,375 @@
     sel.addRange(range);
   }
 
+  // ---------- Räntor ----------
+  // data/<kvartal>-rates.json (scripts/build-rates.ps1): emittenter, kategorier, löptider och nyckeltal per fond.
+  // data/rf/<fond>.json och data/re/<emittent>.json delas upp av scripts/build-pages.ps1.
+  // data/rates-market.json: Riksbankens marknadsräntor, uppdateras varje dag.
+
+  // Ordningen i filen (kategorivärden per fond) och ordningen på sajten (största först)
+  var BUILD_CATS = ["stat", "kommun", "bostad", "bank", "fastighet", "foretag", "utland"];
+  var RATE_CATS = [
+    ["bostad", "Bostadsobligationer", "Säkerställda obligationer från bankernas bolåneinstitut, till exempel Stadshypotek och Swedbank Hypotek."],
+    ["stat", "Svenska staten", "Statsobligationer och statsskuldväxlar."],
+    ["kommun", "Kommuner och regioner", "Kommuninvest, kommuner och regioner, även i Norge och Finland."],
+    ["bank", "Banker", "Bankernas vanliga och efterställda obligationer."],
+    ["fastighet", "Fastighetsbolag", "Obligationer och certifikat från fastighetsbolag."],
+    ["foretag", "Övriga företag", "Industri, energi, konsument och andra bolag."],
+    ["utland", "Utländska stater och utvecklingsbanker", "Till exempel Världsbanken, Europeiska investeringsbanken och andra länders stater."]
+  ];
+  var CAT_LABEL = {};
+  RATE_CATS.forEach(function (c) { CAT_LABEL[c[0]] = c[1]; });
+  var MAT_LABELS = ["Under 1 år", "1–3 år", "3–5 år", "5–10 år", "Över 10 år", "Okänd"];
+  var RATE_SERIES = [
+    ["SECBREPOEFF", "Styrränta", "s1"], ["SEGVB2YC", "Statsobligation 2 år", "s2"],
+    ["SEGVB10YC", "Statsobligation 10 år", "s3"], ["SEMB5YCACOMB", "Bostadsobligation 5 år", "s4"]
+  ];
+  var rateState = { range: 3, q: "", cat: "" };
+
+  function needRates(q) {
+    q = q || state.q;
+    return need("rates-" + q, function () {
+      return getJSON("data/" + q + "-rates.json").then(function (raw) {
+        var r = { meta: raw.meta, maturity: raw.maturity, cats: {}, issuers: [], byKey: {}, funds: {},
+          totals: { v1: raw.totals[0], v2: raw.totals[1], flow: raw.totals[2], matured: raw.totals[3] } };
+        raw.cats.forEach(function (c) { r.cats[c[0]] = { v1: c[1], v2: c[2], flow: c[3] }; });
+        raw.issuers.forEach(function (x) {
+          var o = { key: x[0], name: x[1], cat: x[2], sector: x[3], country: x[4], v1: x[5], v2: x[6], flow: x[7], matured: x[8], f1: x[9], f2: x[10], n: x[11] };
+          r.issuers.push(o); r.byKey[o.key] = o;
+        });
+        raw.funds.forEach(function (x) {
+          var cats = {};
+          BUILD_CATS.forEach(function (c, i) { cats[c] = x[6][i] || 0; });
+          r.funds[x[0]] = { id: x[0], bond: x[1], unit: x[2], cash: x[3], float: x[4], years: x[5], cats: cats, n: x[7], flow: x[8], unitFlow: x[9], eq: x[10] };
+        });
+        // Aktieandelen i kvartalsfilen var tidigare avrundad till 0 eller 1. Räntefilen har den riktiga andelen.
+        var fi = state.data[q] && state.data[q].fi;
+        if (fi) Object.keys(r.funds).forEach(function (id) { if (fi[id] && r.funds[id].eq != null) fi[id].eq = r.funds[id].eq; });
+        (state.data[q] = state.data[q] || {}).rates = r;
+      });
+    });
+  }
+  function ratesData() { var d = quarterData(); return d && d.rates; }
+  function needMarketRates() {
+    return need("rates-market", function () {
+      return getJSON("data/rates-market.json").then(function (m) {
+        Object.keys(m.series).forEach(function (k) { m.series[k].points = m.series[k].points.map(function (p) { return { d: p[0], v: p[1] }; }); });
+        state.market_rates = m;
+      });
+    });
+  }
+  // En fonds räntepapper och fondandelar (data/rf/<id>.json), per kvartal
+  function needFundRates(id) {
+    return need("rf-" + id, function () {
+      return getJSON("data/rf/" + encodeURIComponent(id) + ".json").then(function (x) { (state.fundRates = state.fundRates || {})[id] = x; });
+    });
+  }
+  function needIssuer(key) {
+    return need("re-" + key, function () {
+      return getJSON("data/re/" + encodeURIComponent(key) + ".json").then(function (x) { (state.issuerData = state.issuerData || {})[key] = x; });
+    });
+  }
+
+  // Aktie-, ränte-, bland- eller fondandelsfond utifrån vad fonden äger enligt FI
+  function fundKind(f) {
+    var r = ratesData(), x = r && r.funds[f.id], aum = f.aum || 0;
+    var eq = f.eq || 0, b = x && aum ? x.bond / aum : 0, u = x && aum ? x.unit / aum : 0;
+    if (u >= 0.5) return "fof";
+    if (b >= 0.5) return "rante";
+    if (eq >= 0.6) return "equity";
+    if (eq >= 0.1 && (b >= 0.1 || u >= 0.1) && eq + b + u >= 0.5) return "bland";
+    if (eq >= 0.4) return "equity";
+    return "other";
+  }
+  var KIND_LABEL = { equity: "Aktiefond", rante: "Räntefond", bland: "Blandfond", fof: "Fondandelsfond", other: "Övrig fond" };
+
+  function issuerHref(key) { return "#/emittent/" + encodeURIComponent(key); }
+  function catName(c) { return '<span class="cat-name"><span class="cat-dot cat-' + c + '" aria-hidden="true"></span>' + esc(CAT_LABEL[c] || c) + "</span>"; }
+  function share(v, total) { return total ? nf1.format(v / total * 100) + " %" : "–"; }
+  function ratePct(v) { return v == null ? "–" : nf2.format(v) + " %"; }
+  function ppChange(v) { return v == null ? "" : signed(nf2.format(v), v) + " procentenheter"; }
+  function yearsText(y) { return y == null ? "–" : nf1.format(y) + " år"; }
+  function matText(m) { return !m ? "–" : m === "perp" ? "Evig" : m.slice(0, 4) === "20" && m.slice(5) === "12-31" ? m.slice(0, 4) : m; }
+  function floatText(f) { return f === 1 ? "Rörlig" : f === 0 ? "Fast" : "–"; }
+
+  // Fördelning som liggande stapel med förklaring (kategori, värde, andel)
+  function catBreakdown(vals, total, opts) {
+    opts = opts || {};
+    var list = RATE_CATS.filter(function (c) { return vals[c[0]] > 0; });
+    if (!total || !list.length) return '<p class="desc">Inga räntepapper.</p>';
+    return '<div class="seg-stack" role="img" aria-label="Fördelning per emittentkategori">' + list.map(function (c) {
+      return '<i class="cat-' + c[0] + '" style="flex:' + (vals[c[0]] / total).toFixed(4) + '" title="' + esc(c[1]) + " " + share(vals[c[0]], total) + '"></i>';
+    }).join("") + '</div><ul class="cat-list">' + list.map(function (c) {
+      var flow = opts.flows ? opts.flows[c[0]] : null;
+      return '<li><span class="cat-dot cat-' + c[0] + '" aria-hidden="true"></span><span class="n">' + esc(c[1]) + '</span><span class="p">' + share(vals[c[0]], total) + "</span>" +
+        '<span class="v">' + bigSek(vals[c[0]]) + (flow != null ? ' · <span class="' + cls(flow) + '">' + bigSek(flow, true) + "</span>" : "") + "</span></li>";
+    }).join("") + "</ul>";
+  }
+  function maturityBars(vals) {
+    var max = Math.max.apply(null, vals.concat([1])), total = vals.reduce(function (a, b) { return a + b; }, 0);
+    return '<div class="mat-bars">' + vals.map(function (v, i) {
+      return '<div class="mat-bar' + (i === 5 ? " unknown" : "") + '" title="' + esc(MAT_LABELS[i]) + ": " + bigSek(v) + '"><b>' + share(v, total) + '</b><i style="height:' +
+        (v / max * 100).toFixed(1) + '%"></i><span>' + MAT_LABELS[i] + "</span></div>";
+    }).join("") + "</div>";
+  }
+
+  function viewRates() {
+    document.title = "Räntor och räntefonder – Fondinsyn";
+    var head = '<div class="page-head"><h1>Räntor</h1><p class="meta lead">Marknadsräntorna från Riksbanken och vad svenska fonder äger för räntepapper: ' +
+      "statsobligationer, bostadsobligationer, bankers och företags obligationer. Fondernas innehav kommer från Finansinspektionen varje kvartal.</p></div>";
+    var hasMarket = needMarketRates(), hasRates = needRates();
+    var html = head;
+    // Nyckeltal
+    var m = state.market_rates, r = ratesData();
+    var last = function (id) { var s = m && m.series[id]; return s ? s.points[s.points.length - 1] : null; };
+    var yearAgo = function (id) {
+      var s = m && m.series[id]; if (!s) return null;
+      var lp = s.points[s.points.length - 1], t = Date.parse(lp.d) - 365 * 864e5, best = null;
+      s.points.forEach(function (p) { if (Date.parse(p.d) <= t) best = p; });
+      return best ? lp.v - best.v : null;
+    };
+    var figs = [];
+    if (hasMarket && m) {
+      var pr = last("SECBREPOEFF"), g10 = last("SEGVB10YC"), mb5 = last("SEMB5YCACOMB");
+      if (pr) figs.push(fig(termLink("styrranta", "Styrränta"), ratePct(pr.v), "Riksbanken, " + dateText(pr.d)));
+      if (g10) figs.push(fig("Statsobligation 10 år", ratePct(g10.v), ppChange(yearAgo("SEGVB10YC")) + " på ett år"));
+      if (mb5) figs.push(fig(termLink("bostadsobligation", "Bostadsobligation 5 år"), ratePct(mb5.v), ppChange(yearAgo("SEMB5YCACOMB")) + " på ett år"));
+    }
+    if (hasRates && r) {
+      figs.push(fig("Fondernas räntepapper", bigSek(r.totals.v2), quarterLabel(state.q) + ", " + termLink("kreditflode", "nettoköp") + ' <span class="' + cls(r.totals.flow) + '">' + bigSek(r.totals.flow, true) + "</span>"));
+    }
+    if (figs.length) html += '<dl class="figures">' + figs.join("") + "</dl>";
+    else if (!failed("rates-market") && !failed("rates-" + state.q)) html += loadingBlock("Laddar räntor…");
+
+    // Marknadsräntor
+    if (hasMarket && m) {
+      var from = new Date(Date.now() - rateState.range * 365.25 * 864e5).toISOString().slice(0, 10);
+      var series = RATE_SERIES.filter(function (s) { return m.series[s[0]]; }).map(function (s) {
+        return { id: s[0], label: s[1], cls: s[2], points: m.series[s[0]].points.filter(function (p) { return p.d >= from; }) };
+      });
+      var rangeBtn = function (y, label) { return '<button type="button" class="seg-btn" data-rate-range="' + y + '" aria-pressed="' + (rateState.range === y) + '">' + label + "</button>"; };
+      html += '<section class="block section-gap"><div class="block-head"><h2>Marknadsräntor</h2><div class="seg" role="group" aria-label="Period">' +
+        rangeBtn(1, "1 år") + rangeBtn(3, "3 år") + rangeBtn(8, "8 år") + '</div></div><div class="chart-card">' +
+        '<div class="legend">' + series.map(function (s) { return '<span class="legend-item"><span class="dot ' + s.cls + '"></span>' + esc(s.label) + "</span>"; }).join("") + "</div>" +
+        chart(function (node) {
+          FFCharts.lines(node, series, { unit: " %", tip: function (rows) {
+            return "<b>" + dateText(rows[0].p.d) + "</b>" + rows.map(function (x) {
+              return '<div class="tip-row"><span><span class="dot ' + x.s.cls + '"></span>' + esc(x.s.label) + "</span><b>" + nf2.format(x.p.v) + " %</b></div>";
+            }).join("");
+          } });
+        }) + '<p class="chart-note">Källa: Riksbanken, en notering per vecka. Obligationsräntorna är marknadsräntor för statens och bostadsinstitutens referensobligationer.</p></div></section>';
+    } else if (failed("rates-market")) {
+      html += '<p class="notice section-gap">Marknadsräntorna kunde inte hämtas från Riksbanken just nu.</p>';
+    }
+
+    if (!hasRates) return html + (failed("rates-" + state.q) ? '<p class="notice section-gap">Fondernas räntepapper finns inte för ' + quarterLabel(state.q) + ".</p>" : loadingBlock());
+    var Q = quarterLabel(state.q), P = quarterLabel(r.meta.prevId);
+    var catVals = {}, catFlows = {};
+    Object.keys(r.cats).forEach(function (c) { catVals[c] = r.cats[c].v2; catFlows[c] = r.cats[c].flow; });
+
+    html += '<section class="block section-gap"><div class="block-head"><h2>Vad fonderna äger</h2><span class="note">' + Q + ", med nettoköp sedan " + P + "</span></div>" +
+      '<div class="grid-2"><div class="panel"><h3>Per emittent</h3><p class="desc">Andel av fondernas räntepapper.</p>' + catBreakdown(catVals, r.totals.v2, { flows: catFlows }) + "</div>" +
+      '<div class="panel"><h3>Tid kvar till förfall</h3><p class="desc">' + termLink("loptid", "Löptid") + " för fondernas räntepapper.</p>" + maturityBars(r.maturity) + "</div></div></section>";
+
+    // Kreditflöden
+    var flowCols = function () {
+      return [
+        { key: "n", label: "Emittent", align: "l", cls: "name", cell: function (i) { return '<a href="' + issuerHref(i.key) + '">' + esc(i.name) + '</a><span class="sub">' + esc(CAT_LABEL[i.cat]) + " · " + int(i.f2) + " fonder</span>"; } },
+        { key: "f", label: "Netto (mkr)", cell: function (i) { return '<span class="' + cls(i.flow) + '">' + mkr(i.flow, true) + "</span>"; } },
+        { key: "v", label: "Innehav (mkr)", hideSm: true, cell: function (i) { return mkr(i.v2); } }
+      ];
+    };
+    var buys = r.issuers.filter(function (i) { return i.flow > 0; }).sort(function (a, b) { return b.flow - a.flow; });
+    var sells = r.issuers.filter(function (i) { return i.flow < 0; }).sort(function (a, b) { return a.flow - b.flow; });
+    html += '<div class="grid-2 section-gap">' +
+      block("Köpte mest", "Fondernas nettoköp av obligationer per emittent, " + Q + ".", table("rate-buy", flowCols(), buys, { static: true, limit: 10, expand: true, empty: "Inga köp." })) +
+      block("Sålde mest", "Papper som förfallit räknas inte som sålda.", table("rate-sell", flowCols(), sells, { static: true, limit: 10, expand: true, empty: "Inga sälj." })) + "</div>";
+
+    // Alla emittenter
+    var catOpts = '<option value="">Alla emittenter</option>' + RATE_CATS.map(function (c) { return '<option value="' + c[0] + '"' + (rateState.cat === c[0] ? " selected" : "") + ">" + esc(c[1]) + "</option>"; }).join("");
+    html += '<section class="block section-gap"><div class="block-head"><h2>Alla emittenter</h2></div>' +
+      '<div class="toolbar"><input class="input" type="search" id="rateSearch" placeholder="Sök emittent, till exempel Castellum" value="' + esc(rateState.q) + '" autocomplete="off">' +
+      '<select class="select-sm" id="rateCat" aria-label="Kategori">' + catOpts + '</select><span class="count" id="rateCount"></span></div><div id="issuerTable"></div></section>';
+
+    // Största räntefonderna
+    var d = quarterData();
+    var rf = fundList().filter(function (f) { return fundKind(f) === "rante"; }).sort(function (a, b) { return (b.aum || 0) - (a.aum || 0); });
+    if (rf.length) {
+      html += '<section class="block section-gap"><div class="block-head"><h2>Räntefonder</h2><a class="note" href="#/fonder/rantefonder">Alla ' + int(rf.length) + " räntefonder</a></div>" +
+        table("rate-funds", rateFundCols(), rf, { static: true, limit: 10, expand: true }) + "</section>";
+    }
+    html += '<section class="block section-gap"><div class="block-head"><h2>Så räknas det</h2></div><div class="text-block">' +
+      "<p>Fondbolagen rapporterar varje kvartal alla sina innehav till Finansinspektionen, även obligationer och certifikat. Nettoköpet är förändringen i nominellt belopp " +
+      "gånger värdet per nominell krona vid kvartalets slut. Papper som förfallit under kvartalet (" + bigSek(r.totals.matured) + " i " + Q + ") räknas inte som sålda.</p>" +
+      "<p>Emittenten står inte som ett eget fält hos Finansinspektionen, bara i värdepapperets namn, och fondbolagen skriver samma obligation på olika sätt. " +
+      "Fondinsyn grupperar därför obligationerna per ISIN och knyter ihop namnvarianterna. De stora emittenterna blir rätt, men för små bolag kan samma emittent ibland " +
+      "synas under två namn. Banker som ger ut både säkerställda och vanliga obligationer visas som en emittent, och varje papper räknas till sin kategori.</p></div></section>";
+    return html;
+  }
+  function rateFundCols() {
+    var r = ratesData();
+    var x = function (f) { return r.funds[f.id] || {}; };
+    var corp = function (f) { var c = x(f).cats || {}; return x(f).bond ? ((c.fastighet || 0) + (c.foretag || 0)) / x(f).bond : null; };
+    return [
+      { key: "name", label: "Fond", align: "l", cls: "name", cell: function (f) { return nameCell(fundHref(f), f.name, esc(f.co) + " · " + yearsText(x(f).years)); }, value: function (f) { return f.name; } },
+      { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return companyLink(f.co); }, value: function (f) { return f.co; } },
+      { key: "aum", label: "Förmögenhet (mkr)", cell: function (f) { return mkr(f.aum); }, value: function (f) { return f.aum; } },
+      { key: "fee", label: "Avgift", hideSm: true, cell: function (f) { return f.feeMax == null ? "–" : nf2.format(f.feeMax) + " %"; }, value: function (f) { return f.feeMax; } },
+      { key: "y", label: "Löptid", hideSm: true, cell: function (f) { return yearsText(x(f).years); }, value: function (f) { return x(f).years; } },
+      { key: "fl", label: "Rörlig ränta", hideSm: true, cell: function (f) { return x(f).float == null ? "–" : pctShare(x(f).float); }, value: function (f) { return x(f).float; } },
+      { key: "c", label: "Företag", hideSm: true, cell: function (f) { return corp(f) == null ? "–" : pctShare(corp(f)); }, value: corp },
+      { key: "flow", label: "Netto (mkr)", cell: function (f) { var v = x(f).flow; return v == null ? "–" : '<span class="' + cls(v) + '">' + mkr(v, true) + "</span>"; }, value: function (f) { return x(f).flow; } }
+    ];
+  }
+  function renderIssuerTable() {
+    var r = ratesData();
+    if (!r || !$("issuerTable")) return;
+    var q = rateState.q.trim().toLowerCase();
+    var rows = r.issuers.filter(function (i) {
+      if (i.v2 <= 0 && i.v1 <= 0) return false;
+      if (rateState.cat && i.cat !== rateState.cat) return false;
+      return !q || i.name.toLowerCase().indexOf(q) >= 0;
+    });
+    var cols = [
+      { key: "n", label: "Emittent", align: "l", cls: "name", cell: function (i) { return '<a href="' + issuerHref(i.key) + '">' + esc(i.name) + '</a><span class="sub show-sm">' + esc(CAT_LABEL[i.cat]) + " · " + int(i.f2) + " fonder</span>"; }, value: function (i) { return i.name; } },
+      { key: "c", label: "Kategori", align: "l", hideSm: true, cell: function (i) { return catName(i.cat); }, value: function (i) { return CAT_LABEL[i.cat]; }, csv: function (i) { return CAT_LABEL[i.cat]; } },
+      { key: "v", label: "Innehav (mkr)", cell: function (i) { return mkr(i.v2); }, value: function (i) { return i.v2; } },
+      { key: "f", label: "Nettoköp (mkr)", cell: function (i) { return '<span class="' + cls(i.flow) + '">' + mkr(i.flow, true) + "</span>"; }, value: function (i) { return i.flow; } },
+      { key: "f2", label: "Fonder", hideSm: true, cell: function (i) { return int(i.f2); }, value: function (i) { return i.f2; } },
+      { key: "df", label: "Δ fonder", hideSm: true, cell: function (i) { var dd = i.f2 - i.f1; return '<span class="' + cls(dd) + '">' + (dd ? signed(String(dd), dd) : "0") + "</span>"; }, value: function (i) { return i.f2 - i.f1; } },
+      { key: "nb", label: "Papper", hideSm: true, cell: function (i) { return int(i.n); }, value: function (i) { return i.n; } }
+    ];
+    $("issuerTable").innerHTML = table("issuers", cols, rows, { sort: { col: "v", dir: -1 }, limit: 50, expand: true, csv: true, empty: "Ingen emittent matchar sökningen." });
+    $("rateCount").textContent = int(rows.length) + " emittenter";
+  }
+
+  // Normaliserat bolagsnamn för att hitta emittentens aktie ("Castellum AB" och "Castellum")
+  function bareName(s) {
+    return String(s || "").toLowerCase().replace(/\(publ\)|\bpubl\b/g, " ").replace(/\b(ab|aktiebolag|asa|oyj|plc|group|holding|ltd|inc|ser\.?|class|series|sdb|[a-d])\b/g, " ")
+      .replace(/[^a-z0-9åäö]+/g, "").trim();
+  }
+  function issuerStock(name) {
+    var key = bareName(name);
+    if (key.length < 3) return null;
+    var ds = quarterData().se, best = null;
+    ds.stocks.forEach(function (s) { if (bareName(s.name) === key && (!best || s.val2 > best.val2)) best = s; });
+    return best;
+  }
+
+  function viewIssuer(key) {
+    var hasRates = needRates();
+    if (!hasRates) return failed("rates-" + state.q) ? notFound("Räntedata saknas för " + quarterLabel(state.q) + ".") : loadingBlock();
+    var r = ratesData(), i = r.byKey[key];
+    if (!i) return notFound("Emittenten finns inte bland fondernas räntepapper " + quarterLabel(state.q) + ".");
+    document.title = i.name + " – obligationer som fonderna äger – Fondinsyn";
+    var Q = quarterLabel(state.q), P = quarterLabel(r.meta.prevId);
+    var metaParts = [CAT_LABEL[i.cat]];
+    if (i.sector) metaParts.push(i.sector);
+    if (i.country) metaParts.push(countryName(i.country));
+    var html = '<div class="page-head"><div class="crumbs"><a href="#/rantor">Räntor</a> / ' + esc(i.name) + '</div><div class="title-row"><div class="title-main">' + avatar(i.name) +
+      "<h1>" + esc(i.name) + '</h1></div></div><p class="meta">' + metaParts.map(esc).join(" · ") + "</p></div>";
+    html += '<dl class="figures">' + fig("Fondernas innehav", bigSek(i.v2), Q) +
+      fig("Nettoköp", '<span class="' + cls(i.flow) + '">' + bigSek(i.flow, true) + "</span>", "sedan " + P) +
+      fig("Fonder som äger", int(i.f2), (i.f2 - i.f1 ? signed(String(i.f2 - i.f1), i.f2 - i.f1) + " sedan " + P : "lika många som " + P)) +
+      fig("Värdepapper", int(i.n), "som fonderna äger") +
+      (i.matured > 0 ? fig("Förföll under kvartalet", bigSek(i.matured), "räknas inte som sålt") : "") + "</dl>";
+    var st = issuerStock(i.name);
+    if (st) html += '<p class="notice">Fonderna äger också aktier i bolaget: <a href="' + stockHref(st) + '">' + esc(st.name) + "</a> för " + bigSek(st.val2) + ".</p>";
+
+    if (!needIssuer(key)) return html + (failed("re-" + key) ? '<p class="notice section-gap">Detaljerna för emittenten kunde inte laddas.</p>' : loadingBlock());
+    var x = (state.issuerData[key] || {})[state.q];
+    if (!x) return html + '<p class="notice section-gap">Inga detaljer för ' + Q + ".</p>";
+    var d = quarterData();
+    var funds = x.f.map(function (f) { return { id: f[0], info: d.fi[f[0]], v1: f[1], v2: f[2], flow: f[3] }; });
+    var fundCols = [
+      { key: "n", label: "Fond", align: "l", cls: "name", cell: function (f) { return f.info ? nameCell(fundHref(f.info), f.info.name, esc(f.info.co)) : esc(f.id); }, value: function (f) { return f.info ? f.info.name : f.id; } },
+      { key: "co", label: "Fondbolag", align: "l", cls: "muted", hideSm: true, cell: function (f) { return f.info ? companyLink(f.info.co) : "–"; } },
+      { key: "v", label: "Innehav (mkr)", cell: function (f) { return f.v2 ? mkr(f.v2) : '<span class="label out">Avvecklat</span>'; }, value: function (f) { return f.v2; } },
+      { key: "f", label: "Nettoköp (mkr)", cell: function (f) { return f.flow == null ? "–" : '<span class="' + cls(f.flow) + '">' + mkr(f.flow, true) + "</span>"; }, value: function (f) { return f.flow; } },
+      { key: "w", label: "Andel av fond", hideSm: true, cell: function (f) { return f.info && f.info.aum && f.v2 ? nf1.format(f.v2 / f.info.aum * 100) + " %" : "–"; }, value: function (f) { return f.info && f.info.aum ? f.v2 / f.info.aum : null; } }
+    ];
+    var bonds = x.b.map(function (b) { return { isin: b[0], name: b[1], mat: b[2], fl: b[3], v2: b[4], nf: b[5], v1: b[6] }; });
+    var bondCols = [
+      { key: "n", label: "Värdepapper", align: "l", cls: "name", cell: function (b) { return '<span class="nm-plain">' + esc(b.name) + '</span><span class="sub">' + esc(b.isin.indexOf("X:") === 0 ? "ISIN saknas" : b.isin) + "</span>"; }, value: function (b) { return b.name; } },
+      { key: "m", label: "Förfaller", hideSm: true, cell: function (b) { return matText(b.mat); }, value: function (b) { return b.mat || "9999"; } },
+      { key: "r", label: "Ränta", hideSm: true, cell: function (b) { return floatText(b.fl); }, value: function (b) { return b.fl; } },
+      { key: "v", label: "Fondernas innehav (mkr)", cell: function (b) { return b.v2 ? mkr(b.v2) : '<span class="label out">Borta</span>'; }, value: function (b) { return b.v2; } },
+      { key: "nf", label: "Fonder", cell: function (b) { return int(b.nf); }, value: function (b) { return b.nf; } }
+    ];
+    html += '<div class="grid-2 section-gap">' +
+      block("Fonder som äger", "Fondernas innehav och nettoköp av emittentens papper, " + Q + ".", table("iss-funds-" + key, fundCols, funds, { sort: { col: "v", dir: -1 }, limit: 15, expand: true, csv: true })) +
+      block("Värdepapper", "Obligationer och certifikat som fonderna äger.", table("iss-bonds-" + key, bondCols, bonds, { sort: { col: "v", dir: -1 }, limit: 15, expand: true, csv: true })) + "</div>";
+    return html;
+  }
+
+  // Fondsidan: räntepapper och fondandelar
+  function fundBondRows(id) {
+    var x = state.fundRates && state.fundRates[id] && state.fundRates[id][state.q];
+    if (!x) return null;
+    var r = ratesData();
+    return {
+      b: x.b.map(function (b) {
+        var iss = b[2] && r ? r.byKey[b[2]] : null;
+        return { isin: b[0], raw: b[1], key: b[2], issuer: iss ? iss.name : b[1], cat: b[3], mat: b[4], fl: b[5], n1: b[6], n2: b[7], v1: b[8], v2: b[9], matured: !!b[10], flow: b[11] };
+      }),
+      u: x.u.map(function (u) { return { isin: u[0], name: prettyName(u[1]), target: u[2], v1: u[3], v2: u[4], flow: u[5] }; })
+    };
+  }
+  function bondFlow(b) { return b.matured ? 0 : b.flow; }
+
+  function fundBondSection(info, rx, rows) {
+    var Q = quarterLabel(state.q);
+    var aum = info.aum;
+    var corp = rx.bond ? ((rx.cats.fastighet || 0) + (rx.cats.foretag || 0)) / rx.bond : null;
+    var html = '<section class="block section-gap"><div class="block-head"><h2>Räntepapper</h2><span class="note">' + int(rx.n) + " värdepapper · " + bigSek(rx.bond) +
+      (aum ? " · " + share(rx.bond, aum) + " av fonden" : "") + "</span></div>";
+    html += '<dl class="figures">' + fig(termLink("loptid", "Genomsnittlig löptid"), yearsText(rx.years), "tid kvar till förfall") +
+      fig("Rörlig ränta", rx.float == null ? "–" : pctShare(rx.float), "av räntepappren") +
+      fig("Företagsobligationer", corp == null ? "–" : pctShare(corp), "fastighetsbolag och övriga företag") +
+      fig("Nettoköp", rx.flow == null ? "–" : '<span class="' + cls(rx.flow) + '">' + bigSek(rx.flow, true) + "</span>", Q) + "</dl>";
+    if (!rows) return html + (failed("rf-" + info.id) ? "" : loadingBlock()) + "</section>";
+    var mat = [0, 0, 0, 0, 0, 0], qEnd = Date.parse(quarterData().meta.curr);
+    rows.b.forEach(function (b) {
+      if (!b.v2) return;
+      var y = b.mat && b.mat !== "perp" ? (Date.parse(b.mat) - qEnd) / (365.25 * 864e5) : null;
+      mat[y == null ? 5 : y < 1 ? 0 : y < 3 ? 1 : y < 5 ? 2 : y < 10 ? 3 : 4] += b.v2;
+    });
+    html += '<div class="grid-2"><div class="panel"><h3>Per emittent</h3>' + catBreakdown(rx.cats, rx.bond) + '</div><div class="panel"><h3>Tid kvar till förfall</h3>' + maturityBars(mat) + "</div></div>";
+    var cols = [
+      { key: "n", label: "Emittent", align: "l", cls: "name", cell: function (b) {
+        return (b.key ? '<a href="' + issuerHref(b.key) + '">' + esc(b.issuer) + "</a>" : '<span class="nm-plain">' + esc(b.issuer) + "</span>") + '<span class="sub">' + esc(b.raw) + "</span>";
+      }, value: function (b) { return b.issuer; } },
+      { key: "c", label: "Kategori", align: "l", hideSm: true, cell: function (b) { return catName(b.cat); }, value: function (b) { return CAT_LABEL[b.cat]; }, csv: function (b) { return CAT_LABEL[b.cat]; } },
+      { key: "m", label: "Förfaller", hideSm: true, cell: function (b) { return matText(b.mat); }, value: function (b) { return b.mat || "9999"; } },
+      { key: "r", label: "Ränta", hideSm: true, cell: function (b) { return floatText(b.fl); }, value: function (b) { return b.fl; } },
+      { key: "v", label: "Värde (mkr)", cell: function (b) { return b.v2 ? mkr(b.v2) : '<span class="label out">' + (b.matured ? "Förföll" : "Såld") + "</span>"; }, value: function (b) { return b.v2; } },
+      { key: "w", label: "Andel av fond", hideSm: true, cell: function (b) { return aum && b.v2 ? nf1.format(b.v2 / aum * 100) + " %" : "–"; }, value: function (b) { return b.v2; } },
+      { key: "d", label: "Förändring (mkr)", hideSm: true, cell: function (b) { var v = bondFlow(b); return b.matured || v == null ? "–" : '<span class="' + cls(v) + '">' + mkr(v, true) + "</span>"; }, value: function (b) { return bondFlow(b); } }
+    ];
+    return html + '<div class="section-gap-sm">' + table("fund-bonds-" + info.id, cols, rows.b, { sort: { col: "v", dir: -1 }, limit: 15, expand: true, csv: true }) + "</div></section>";
+  }
+  function fundUnitSection(info, rx, rows) {
+    var d = quarterData(), aum = info.aum;
+    var html = '<section class="block section-gap"><div class="block-head"><h2>Fondandelar</h2><span class="note">Fonder som fonden äger · ' + bigSek(rx.unit) +
+      (aum ? " · " + share(rx.unit, aum) + " av fonden" : "") + "</span></div>";
+    if (!rows) return html + (failed("rf-" + info.id) ? "" : loadingBlock()) + "</section>";
+    var cols = [
+      { key: "n", label: "Fond", align: "l", cls: "name", cell: function (u) {
+        var t = u.target && d.fi[u.target];
+        return t ? nameCell(fundHref(t), u.name, esc(t.co)) : '<span class="nm-plain">' + esc(u.name) + '</span><span class="sub">' + (u.isin && u.isin.indexOf("X:") ? esc(u.isin) : "") + "</span>";
+      }, value: function (u) { return u.name; } },
+      { key: "v", label: "Värde (mkr)", cell: function (u) { return u.v2 ? mkr(u.v2) : '<span class="label out">Såld</span>'; }, value: function (u) { return u.v2; } },
+      { key: "w", label: "Andel av fond", hideSm: true, cell: function (u) { return aum && u.v2 ? nf1.format(u.v2 / aum * 100) + " %" : "–"; }, value: function (u) { return u.v2; } },
+      { key: "d", label: "Förändring (mkr)", cell: function (u) { return u.flow == null ? "–" : '<span class="' + cls(u.flow) + '">' + mkr(u.flow, true) + "</span>"; }, value: function (u) { return u.flow; } }
+    ];
+    return html + table("fund-units-" + info.id, cols, rows.u, { sort: { col: "v", dir: -1 }, limit: 15, expand: true, csv: true }) + "</section>";
+  }
+
   // ---------- Routing ----------
 
   var MARKET_PAGES = { oversikt: 1, aktier: 1, fonder: 1, fondbolag: 1, rapport: 1 };
+  // #/fonder/rantefonder öppnar fondlistan filtrerad på en fondtyp
+  var FUND_TYPE_SLUGS = { aktiefonder: "equity", rantefonder: "rante", blandfonder: "bland", fondandelsfonder: "fof", indexfonder: "index" };
 
   // Sidorna under /aktie/, /fond/ och /fondbolag/ byggs av scripts/build-pages.ps1 och anger sin vy i
   // data-route. En adress med # går alltid före.
@@ -2571,7 +3014,7 @@
     if (!(pageKeep && !location.hash)) switch (r.page) {
       case "aktier": html = viewStocks(); break;
       case "aktie": html = viewStock(r.arg); break;
-      case "fonder": html = viewFunds(); break;
+      case "fonder": if (FUND_TYPE_SLUGS[r.arg] && lastRouteKey !== "fonder/" + r.arg + "/") fundFilter.type = FUND_TYPE_SLUGS[r.arg]; html = viewFunds(); break;
       case "fond": html = viewFund(r.arg, r.arg2); break;
       case "forvaltare": html = viewManagers(); break;
       case "avgifter": html = viewFees(); break;
@@ -2586,6 +3029,8 @@
       case "ordlista": html = viewGlossary(r.arg); break;
       case "om": html = viewAbout(); break;
       case "kontakt": html = viewContact(); break;
+      case "rantor": html = viewRates(); break;
+      case "emittent": html = viewIssuer(r.arg); break;
       default: html = viewOverview();
     }
     if (html !== null) app.innerHTML = html;
@@ -2600,8 +3045,9 @@
     if (pageTitle && !location.hash) document.title = pageTitle;
     if (r.page === "aktier") renderStockTable();
     if (r.page === "fonder") renderFundTable();
+    if (r.page === "rantor") renderIssuerTable();
     drawCharts();
-    var navKey = { aktie: "aktier", fond: "fonder", blankare: "blankning", fondbolag: "fonder" }[r.page] || r.page;
+    var navKey = { aktie: "aktier", fond: "fonder", blankare: "blankning", fondbolag: "fonder", emittent: "rantor" }[r.page] || r.page;
     document.querySelectorAll("[data-nav]").forEach(function (a) {
       if (a.getAttribute("data-nav") === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
@@ -2798,6 +3244,8 @@
     if (insKind) { insiderFilter.kind = insKind.getAttribute("data-ins-kind"); var iy = window.scrollY; render(); window.scrollTo(0, iy); return; }
     var fundTab = e.target.closest("[data-fund-tab]");
     if (fundTab) { state.fundTab = fundTab.getAttribute("data-fund-tab"); var ty = window.scrollY; render(); window.scrollTo(0, ty); return; }
+    var rr = e.target.closest("[data-rate-range]");
+    if (rr) { rateState.range = +rr.getAttribute("data-rate-range"); var ry2 = window.scrollY; render(); window.scrollTo(0, ry2); return; }
     var fundTr = e.target.closest("[data-fund-trades]");
     if (fundTr) { fundTradeFilter = fundTr.getAttribute("data-fund-trades"); var ry = window.scrollY; render(); window.scrollTo(0, ry); return; }
     var showAllBtn = e.target.closest("[data-show-all]");
@@ -2868,6 +3316,7 @@
     if (e.target.id === "searchInput") { runSearch(); return; }
     if (e.target.id === "stockSearch") { stockFilter.q = e.target.value; renderStockTable(); }
     if (e.target.id === "fundSearch") { fundFilter.q = e.target.value; renderFundTable(); }
+    if (e.target.id === "rateSearch") { rateState.q = e.target.value; renderIssuerTable(); }
   });
   document.addEventListener("change", function (e) {
     var id = e.target.id;
@@ -2876,6 +3325,7 @@
     if (id === "stockMin") { stockFilter.min = e.target.value; renderStockTable(); }
     if (id === "fundCo") { fundFilter.co = e.target.value; renderFundTable(); }
     if (id === "fundType") { fundFilter.type = e.target.value; renderFundTable(); }
+    if (id === "rateCat") { rateState.cat = e.target.value; renderIssuerTable(); }
     if (id === "quarter") selectQuarter(e.target.value);
     if (e.target.hasAttribute && e.target.hasAttribute("data-pf-id")) {
       var pid = e.target.getAttribute("data-pf-id"), val = parseFloat(String(e.target.value).replace(",", "."));

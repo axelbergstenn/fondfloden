@@ -432,6 +432,50 @@ table.heat th.l, table.heat td.l { text-align: left; }
 .c-area { fill: var(--brand); fill-opacity: 0.08; }
 .c-dot { fill: var(--brand); stroke: var(--bg); stroke-width: 2; }
 .c-cross { stroke: var(--border-strong); stroke-width: 1; }
+
+/* Kategorifärger: räntor (linjer) och emittentkategorier (staplar). Samma åtta nyanser i ljust och mörkt läge,
+   med egna steg för den mörka bakgrunden. Färgen följer serien, aldrig rangordningen. */
+:root {
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --cat-bostad: #2a78d6; --cat-stat: #eb6834; --cat-kommun: #1baf7a; --cat-bank: #eda100;
+  --cat-fastighet: #e87ba4; --cat-foretag: #4a3aa7; --cat-utland: #98a2b3;
+}
+:root[data-theme="dark"] {
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --cat-bostad: #3987e5; --cat-stat: #d95926; --cat-kommun: #199e70; --cat-bank: #c98500;
+  --cat-fastighet: #d55181; --cat-foretag: #9085e9; --cat-utland: #667085;
+}
+.c-series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c-end { stroke: var(--bg); stroke-width: 2; }
+.c-series.s1 { stroke: var(--s1); } .c-end.s1, .dot.s1 { fill: var(--s1); background: var(--s1); }
+.c-series.s2 { stroke: var(--s2); } .c-end.s2, .dot.s2 { fill: var(--s2); background: var(--s2); }
+.c-series.s3 { stroke: var(--s3); } .c-end.s3, .dot.s3 { fill: var(--s3); background: var(--s3); }
+.c-series.s4 { stroke: var(--s4); } .c-end.s4, .dot.s4 { fill: var(--s4); background: var(--s4); }
+.tip-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.tip-row b { font-variant-numeric: tabular-nums; }
+.tip-row .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+
+/* Fördelning som en liggande stapel med segment (kategorier eller löptider) */
+.seg-stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; gap: 2px; background: var(--bg); margin: 4px 0 14px; }
+.seg-stack i { display: block; height: 100%; min-width: 2px; }
+.cat-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.cat-bostad { background: var(--cat-bostad); } .cat-stat { background: var(--cat-stat); } .cat-kommun { background: var(--cat-kommun); }
+.cat-bank { background: var(--cat-bank); } .cat-fastighet { background: var(--cat-fastighet); } .cat-foretag { background: var(--cat-foretag); }
+.cat-utland { background: var(--cat-utland); }
+.cat-name { display: inline-flex; align-items: center; gap: 8px; }
+.mat-bars { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: end; height: 150px; padding-top: 8px; }
+.mat-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; height: 100%; font-size: 12px; color: var(--fg-muted); text-align: center; }
+.mat-bar i { display: block; width: 100%; max-width: 56px; background: var(--brand); border-radius: 4px 4px 0 0; min-height: 2px; }
+.mat-bar b { color: var(--fg); font-weight: 650; font-variant-numeric: tabular-nums; }
+.mat-bar.unknown i { background: var(--bar-neutral); }
+.panel { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.panel h3 { font-size: 15px; font-weight: 650; margin: 0 0 4px; }
+.panel .desc { margin-bottom: 8px; }
+.cat-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.cat-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 1px; align-items: center; }
+.cat-list .n { color: var(--fg); font-weight: 550; }
+.cat-list .p { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; white-space: nowrap; }
+.cat-list .v { grid-column: 2 / 4; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--fg-muted); white-space: nowrap; }
 .c-pt { stroke: var(--bg); stroke-width: 1.5; }
 .c-closet, i.c-closet { fill: var(--dot-warn); background: var(--dot-warn); }
 .c-active, i.c-active { fill: var(--dot-active); background: var(--dot-active); }
@@ -841,3 +885,16 @@ body[data-page="oversikt"] .summary { display: none; }
 .more-rows { display: block; width: 100%; margin-top: 8px; font: inherit; font-size: 14px; font-weight: 600; color: var(--link); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px; cursor: pointer; }
 .more-rows:hover { background: var(--bg-hover); }
 .mgr .more { margin-top: 0; }
+
+/* Räntor */
+.chart-note { font-size: 12px; color: var(--fg-muted); margin: 8px 0 4px; }
+.text-block { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; max-width: 900px; }
+.text-block p { margin: 0 0 10px; color: var(--fg-soft); font-size: 14px; line-height: 1.6; }
+.text-block p:last-child { margin-bottom: 0; }
+.section-gap-sm { margin-top: 14px; }
+.panel .seg-stack { margin-top: 10px; }
+@media (max-width: 760px) {
+  .mat-bars { gap: 6px; height: 130px; }
+  .mat-bar { font-size: 11px; }
+  .panel { padding: 14px; }
+}

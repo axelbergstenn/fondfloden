@@ -243,5 +243,81 @@
     hit.addEventListener("click", function () { if (current && opts.onClick) opts.onClick(current); });
   }
 
-  window.FFCharts = { columns: columns, line: line, scatter: scatter };
+  // Flera tidsserier på en gemensam datumaxel (marknadsräntor). series: [{ label, cls, points: [{ d: "YYYY-MM-DD", v }] }]
+  // Varje linje får en etikett vid sista punkten, och ett hårkors visar alla serier för samma datum.
+  function lines(container, series, opts) {
+    opts = opts || {};
+    var ctx = setup(container, opts.height || 280);
+    var narrow = ctx.w < 520;
+    var m = { t: 16, r: narrow ? 12 : 64, b: 26, l: 40 };
+    var all = [];
+    series.forEach(function (s) { s.points.forEach(function (p) { all.push(p.v); }); });
+    if (!all.length) return;
+    var scale = niceTicks(Math.min(0, Math.min.apply(null, all)), Math.max.apply(null, all), 4);
+    var ih = ctx.h - m.t - m.b, iw = ctx.w - m.l - m.r;
+    var t0 = Infinity, t1 = -Infinity;
+    series.forEach(function (s) { s.points.forEach(function (p) { p.t = Date.parse(p.d); if (p.t < t0) t0 = p.t; if (p.t > t1) t1 = p.t; }); });
+    var x = function (t) { return m.l + (t - t0) / Math.max(1, t1 - t0) * iw; };
+    var y = function (v) { return m.t + (scale.max - v) / (scale.max - scale.min) * ih; };
+
+    var g = el("g", {}, ctx.svg);
+    scale.ticks.forEach(function (t) {
+      var yy = Math.round(y(t)) + 0.5;
+      el("line", { x1: m.l, x2: ctx.w - m.r, y1: yy, y2: yy, "class": t === 0 ? "c-zero" : "c-grid" }, g);
+      text(g, m.l - 8, yy + 4, fmtTick(t) + (opts.unit || ""), "c-axis", "end");
+    });
+    // Årtal vid varje årsskifte (vartannat år om axeln är trång)
+    var y0 = new Date(t0).getUTCFullYear(), y1 = new Date(t1).getUTCFullYear();
+    var years = []; for (var yr = y0 + 1; yr <= y1; yr++) years.push(yr);
+    var every = Math.max(1, Math.ceil(years.length * 48 / iw));
+    years.forEach(function (yr, i) {
+      if (i % every) return;
+      var xx = x(Date.UTC(yr, 0, 1));
+      el("line", { x1: xx, x2: xx, y1: ctx.h - m.b, y2: ctx.h - m.b + 4, "class": "c-zero" }, g);
+      text(g, xx, ctx.h - 6, String(yr), "c-axis", "middle");
+    });
+
+    // Linjerna, med en 2px ring av bakgrundsfärg runt slutpunkten
+    var ends = [];
+    series.forEach(function (s) {
+      var d = "";
+      s.points.forEach(function (p, i) { d += (i ? "L" : "M") + x(p.t).toFixed(1) + "," + y(p.v).toFixed(1); });
+      el("path", { d: d, "class": "c-series " + s.cls }, ctx.svg);
+      var lp = s.points[s.points.length - 1];
+      if (lp) { el("circle", { cx: x(lp.t), cy: y(lp.v), r: 4, "class": "c-end " + s.cls }, ctx.svg); ends.push({ s: s, p: lp, y: y(lp.v) }); }
+    });
+    // Värdet vid linjens slut, utan att etiketterna krockar
+    if (!narrow) {
+      ends.sort(function (a, b) { return a.y - b.y; });
+      for (var k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 14) ends[k].y = ends[k - 1].y + 14;
+      ends.forEach(function (e) { text(ctx.svg, ctx.w - m.r + 8, e.y + 4, fmtTick(e.p.v) + (opts.unit || ""), "c-label"); });
+    }
+
+    var cross = el("line", { y1: m.t, y2: ctx.h - m.b, "class": "c-cross", visibility: "hidden" }, ctx.svg);
+    var dots = series.map(function (s) { return el("circle", { r: 4, "class": "c-end " + s.cls, visibility: "hidden" }, ctx.svg); });
+    var hit = el("rect", { x: m.l, y: 0, width: iw, height: ctx.h, fill: "transparent" }, ctx.svg);
+    function nearest(s, t) {
+      var lo = 0, hi = s.points.length - 1;
+      while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (s.points[mid].t < t) lo = mid; else hi = mid; }
+      return Math.abs(s.points[lo].t - t) <= Math.abs(s.points[hi].t - t) ? s.points[lo] : s.points[hi];
+    }
+    hit.addEventListener("pointermove", function (e) {
+      var r = ctx.svg.getBoundingClientRect();
+      var t = t0 + (e.clientX - r.left - m.l) / iw * (t1 - t0);
+      var rows = [], cx = null;
+      series.forEach(function (s, i) {
+        var p = nearest(s, t);
+        if (cx == null) cx = x(p.t);
+        dots[i].setAttribute("cx", x(p.t)); dots[i].setAttribute("cy", y(p.v)); dots[i].setAttribute("visibility", "visible");
+        rows.push({ s: s, p: p });
+      });
+      cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+      showTip(ctx, opts.tip(rows), cx, m.t + 30);
+    });
+    hit.addEventListener("pointerleave", function () {
+      cross.setAttribute("visibility", "hidden"); dots.forEach(function (d) { d.setAttribute("visibility", "hidden"); }); hideTip(ctx);
+    });
+  }
+
+  window.FFCharts = { columns: columns, line: line, scatter: scatter, lines: lines };
 })();

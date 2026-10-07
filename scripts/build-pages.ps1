@@ -283,7 +283,7 @@ function FundUrl($id) { $fi = $infoById[$id]; if ($fi) { return "/fond/$($fi.slu
 function CoUrl($co) { if ($companies.ContainsKey($co)) { return "/fondbolag/$($companies[$co].slug)/" }; return "/#/fondbolag/" + [uri]::EscapeDataString($co) }
 
 # Gamla sidor tas bort så att aktier och fonder som försvunnit inte ligger kvar
-foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist", "data/csv", "oppen-data", "data/insyn")) {
+foreach ($dir in @("aktie", "fond", "fondbolag", "aktier", "fonder", "ordlista", "rapport", "og", "data/fund", "data/hist", "data/csv", "oppen-data", "data/insyn", "data/rf", "data/re", "rantor", "emittent")) {
   $p = Join-Path $Site $dir
   if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
@@ -464,6 +464,53 @@ if (Test-Path $archDir) {
   Save "data/insider-year.json" ('{"from":' + (J $since) + ',"rows":[' + (@($yr) -join ",") + "]}")
   Write-Host "  insynsarkiv: $($byIsin.Count) aktier, $($yearRows.Count) affärer senaste året"
 }
+
+# ---------- Räntor: en fil per fond och per emittent ----------
+# site/data/<kvartal>-rates-funds.json byggs av scripts/build-rates.ps1. Här delas den upp så att fondsidan och
+# emittentsidan bara hämtar sitt: data/rf/<fond>.json och data/re/<emittent>.json, med alla kvartal som finns.
+$rfParts = @{}; $reParts = @{}; $rateQs = 0; $issLatest = $null
+foreach ($rq in $index.quarters) {
+  $hp = Join-Path $DataDir "$($rq.id)-rates-funds.json"
+  if (-not (Test-Path $hp)) { continue }
+  $rateQs++
+  $heavyText = [System.IO.File]::ReadAllText($hp, [System.Text.Encoding]::UTF8)
+  $heavy = $heavyText | ConvertFrom-Json
+  # build-rates.ps1 skriver en fond per rad: fondens del sparas som den är, utan att göras om till JSON igen
+  $rawFund = @{}
+  foreach ($m in [regex]::Matches($heavyText, '(?m)^"([^"]+)":(\{.*\}),?\r?$')) { $rawFund[$m.Groups[1].Value] = $m.Groups[2].Value }
+  $iss = @{}
+  foreach ($prop in $heavy.funds.PSObject.Properties) {
+    $fid = $prop.Name; $x = $prop.Value
+    if (-not $rfParts.ContainsKey($fid)) { $rfParts[$fid] = New-Object System.Collections.Generic.List[string] }
+    if ($rawFund.ContainsKey($fid)) { $rfParts[$fid].Add((J $rq.id) + ":" + $rawFund[$fid]) }
+    foreach ($b in $x.b) {
+      $key = [string]$b[2]
+      if (-not $key) { continue }
+      if (-not $iss.ContainsKey($key)) { $iss[$key] = @{ f = @{}; b = @{} } }
+      $e = $iss[$key]
+      if (-not $e.f.ContainsKey($fid)) { $e.f[$fid] = @{ v1 = 0.0; v2 = 0.0; flow = $null } }
+      $ef = $e.f[$fid]
+      $ef.v1 += [double]$b[8]; $ef.v2 += [double]$b[9]
+      if ($null -ne $b[11]) { $ef.flow = [double]$ef.flow + [double]$b[11] }
+      $isin = [string]$b[0]
+      if (-not $e.b.ContainsKey($isin)) { $e.b[$isin] = @{ name = [string]$b[1]; mat = $b[4]; fl = $b[5]; v2 = 0.0; v1 = 0.0; n = 0 } }
+      $eb = $e.b[$isin]
+      $eb.v1 += [double]$b[8]; $eb.v2 += [double]$b[9]
+      if ([double]$b[9] -gt 0) { $eb.n++ }
+    }
+  }
+  if ($rq.id -eq $Q) { $issLatest = $iss }
+  foreach ($key in $iss.Keys) {
+    $e = $iss[$key]
+    $fr = foreach ($fid in $e.f.Keys) { $ef = $e.f[$fid]; "[" + (J $fid) + "," + [math]::Round($ef.v1).ToString($Inv) + "," + [math]::Round($ef.v2).ToString($Inv) + "," + $(if ($null -eq $ef.flow) { "null" } else { [math]::Round($ef.flow).ToString($Inv) }) + "]" }
+    $br = foreach ($isin in $e.b.Keys) { $eb = $e.b[$isin]; "[" + (J $isin) + "," + (J $eb.name) + "," + (J $eb.mat) + "," + $(if ($null -eq $eb.fl) { "null" } else { $eb.fl }) + "," + [math]::Round($eb.v2).ToString($Inv) + "," + $eb.n + "," + [math]::Round($eb.v1).ToString($Inv) + "]" }
+    if (-not $reParts.ContainsKey($key)) { $reParts[$key] = New-Object System.Collections.Generic.List[string] }
+    $reParts[$key].Add((J $rq.id) + ':{"f":[' + (@($fr) -join ",") + '],"b":[' + (@($br) -join ",") + "]}")
+  }
+}
+foreach ($fid in $rfParts.Keys) { Save "data/rf/$fid.json" ("{" + ($rfParts[$fid] -join ",") + "}") }
+foreach ($key in $reParts.Keys) { Save "data/re/$key.json" ("{" + ($reParts[$key] -join ",") + "}") }
+Write-Host "  räntor: $rateQs kvartal, $($rfParts.Count) fonder, $($reParts.Count) emittenter"
 
 # ---------- Delningsbilder ----------
 
@@ -1123,6 +1170,64 @@ if ($gl) {
   Write-Host "  $($termPages.Count) sidor i ordlistan"
 }
 
+# ---------- Räntor: /rantor/ och en sida per större emittent ----------
+$ratesLight = if (Test-Path (Join-Path $DataDir "$Q-rates.json")) { ReadJson "$Q-rates.json" } else { $null }
+if ($ratesLight -and $issLatest) {
+  $RateCat = [ordered]@{ bostad = "Bostadsobligationer"; stat = "Svenska staten"; kommun = "Kommuner och regioner"; bank = "Banker"; fastighet = "Fastighetsbolag"; foretag = "Övriga företag"; utland = "Utländska stater och utvecklingsbanker" }
+  $rIss = @($ratesLight.issuers | ForEach-Object { [pscustomobject]@{ key = [string]$_[0]; name = [string]$_[1]; cat = [string]$_[2]; v1 = [double]$_[5]; v2 = [double]$_[6]; flow = [double]$_[7]; f1 = [int]$_[9]; f2 = [int]$_[10]; n = [int]$_[11] } })
+  $rTot = [double]$ratesLight.totals[1]; $rFlow = [double]$ratesLight.totals[2]
+  $issPages = @($rIss | Where-Object { $_.v2 -ge 300e6 } | Sort-Object v2 -Descending)
+  $issUrl = @{}; foreach ($i in $issPages) { $issUrl[$i.key] = "/emittent/$($i.key)/" }
+  function IssuerUrl($key) { if ($issUrl.ContainsKey($key)) { return $issUrl[$key] }; return "/#/emittent/" + [uri]::EscapeDataString($key) }
+
+  # En sida per emittent med minst 300 mkr i fondernas innehav
+  foreach ($i in $issPages) {
+    $e = $issLatest[$i.key]
+    if (-not $e) { continue }
+    $holders = @($e.f.GetEnumerator() | Where-Object { $_.Value.v2 -gt 0 } | Sort-Object { $_.Value.v2 } -Descending)
+    $hRows = foreach ($h in ($holders | Select-Object -First 15)) {
+      $fi = $infoById[$h.Key]
+      $nm = if ($fi) { A (FundUrl $h.Key) $fi.name } else { Esc $h.Key }
+      ,@($nm, (Mkr $h.Value.v2), $(if ($null -eq $h.Value.flow) { "–" } else { Colored $h.Value.flow (Mkr $h.Value.flow -Sign) }))
+    }
+    $bRows = foreach ($b in (@($e.b.GetEnumerator() | Where-Object { $_.Value.v2 -gt 0 } | Sort-Object { $_.Value.v2 } -Descending) | Select-Object -First 15)) {
+      ,@((Esc $b.Value.name), (Mkr $b.Value.v2), (Num0 $b.Value.n))
+    }
+    $top = @($holders | Select-Object -First 3 | ForEach-Object { $fi = $infoById[$_.Key]; if ($fi) { $fi.name } })
+    $catName = $RateCat[$i.cat]
+    $lead = "Svenska fonder äger obligationer och certifikat från $($i.name) för $(BigSek $i.v2) ($asOf), fördelat på $(Plural $i.f2 'fond' 'fonder')."
+    if ([math]::Abs($i.flow) -ge 1e6) { $lead += $(if ($i.flow -gt 0) { " Under $QL nettoköpte fonderna för $(BigSek $i.flow)." } else { " Under $QL nettosålde fonderna för $(BigSek (-$i.flow))." }) }
+    if ($top.Count) { $lead += " Största ägare är " + (JoinSv $top) + "." }
+    $content = '<div class="page-head"><div class="crumbs">' + (A "/rantor/" "Räntor") + " / " + (Esc $i.name) + '</div><h1>' + (Esc $i.name) + '</h1><p class="meta">' + (Esc $catName) + "</p></div>" +
+      '<p class="lead">' + (Esc $lead) + "</p>" +
+      '<dl class="figures">' + (Fig "Fondernas innehav" (BigSek $i.v2)) + (Fig "Nettoköp $QL" (Colored $i.flow (BigSek $i.flow -Sign))) + (Fig "Fonder som äger" (Num0 $i.f2)) + (Fig "Värdepapper" (Num0 $i.n)) + "</dl>" +
+      '<div class="grid-2 section-gap">' + (Block "Fonder som äger" (Table @("Fond", "Innehav (mkr)", "Nettoköp (mkr)") @($hRows)) "") + (Block "Värdepapper" (Table @("Värdepapper", "Innehav (mkr)", "Fonder") @($bRows)) "") + "</div>" +
+      (Source ("/#/emittent/" + [uri]::EscapeDataString($i.key)) "Se alla fonder och värdepapper")
+    Page "emittent/$($i.key)/" "emittent/$($i.key)" "$($i.name) – obligationer som fonderna äger | Fondinsyn" `
+      "$($i.name): svenska fonder äger obligationer för $(BigSek $i.v2) ($asOf). Se vilka fonder som äger, köper och säljer bolagets obligationer och certifikat." `
+      $defaultImg $content -Crumbs @("Räntor", "rantor/", $i.name, "emittent/$($i.key)/")
+  }
+
+  # Översikten /rantor/
+  $catRows = foreach ($c in $RateCat.Keys) {
+    $row = @($ratesLight.cats | Where-Object { $_[0] -eq $c })[0]
+    if (-not $row -or [double]$row[2] -le 0) { continue }
+    ,@((Esc $RateCat[$c]), (BigSek ([double]$row[2])), (Colored ([double]$row[3]) (BigSek ([double]$row[3]) -Sign)), (PctPlain ([double]$row[2] / $rTot * 100)))
+  }
+  $flowRows = { param($list) foreach ($i in $list) { ,@((A (IssuerUrl $i.key) $i.name), (Colored $i.flow (Mkr $i.flow -Sign)), (Mkr $i.v2)) } }
+  $rBuys = @($rIss | Where-Object { $_.flow -gt 0 } | Sort-Object flow -Descending | Select-Object -First 10)
+  $rSells = @($rIss | Where-Object { $_.flow -lt 0 } | Sort-Object flow | Select-Object -First 10)
+  $topIss = @($rIss | Sort-Object v2 -Descending | Select-Object -First 25)
+  $content = '<div class="page-head"><h1>Räntor</h1><p class="meta lead">Marknadsräntorna från Riksbanken och vad svenska fonder äger för räntepapper: statsobligationer, bostadsobligationer, bankers och företags obligationer.</p></div>' +
+    '<dl class="figures">' + (Fig "Fondernas räntepapper" (BigSek $rTot)) + (Fig "Nettoköp $QL" (Colored $rFlow (BigSek $rFlow -Sign))) + (Fig "Emittenter" (Num0 @($rIss | Where-Object { $_.v2 -gt 0 }).Count)) + "</dl>" +
+    (Block "Vad fonderna äger, $QL" (Table @("Emittent", "Innehav", "Nettoköp", "Andel") @($catRows)) "section-gap") +
+    '<div class="grid-2 section-gap">' + (Block "Köpte mest" (Table @("Emittent", "Netto (mkr)", "Innehav (mkr)") @(& $flowRows $rBuys)) "") + (Block "Sålde mest" (Table @("Emittent", "Netto (mkr)", "Innehav (mkr)") @(& $flowRows $rSells)) "") + "</div>" +
+    (Block "Största emittenterna" (Table @("Emittent", "Netto (mkr)", "Innehav (mkr)") @(& $flowRows $topIss)) "section-gap") +
+    (Source "/#/rantor" "Se marknadsräntor och alla emittenter")
+  Page "rantor/" "rantor" "Räntor och räntefonder – vad fonderna äger | Fondinsyn" "Vilka obligationer svenska räntefonder äger, köper och säljer: statsobligationer, bostadsobligationer och företagsobligationer per emittent, plus Riksbankens räntor." `
+    $defaultImg $content -Crumbs @("Räntor", "rantor/")
+  Write-Host "  räntesidor: /rantor/ och $($issPages.Count) emittenter"
+}
 # ---------- Öppen data: CSV-filer och sidan /oppen-data/ ----------
 # CSV med semikolon och decimalkomma så att filerna öppnas rätt i svenska Excel.
 
@@ -1177,6 +1282,8 @@ $prevQL = QLabel ([string]$qMeta.prevId)
 $srcRows = NewList
 $srcRows.Add(@("Fondernas innehav", (A "https://www.fi.se/sv/vara-register/fondinnehav-per-kvartal/" "Finansinspektionen, fondinnehav per kvartal"), "Varje kvartal, ungefär tolv veckor efter kvartalsslut", "$QL (innehav $asOf)"))
 $srcRows.Add(@("Avgifter och risk", "Samma kvartalsrapporter till FI", "Varje kvartal", $QL))
+$srcRows.Add(@("Räntepapper och fondandelar", "Samma kvartalsrapporter till FI", "Varje kvartal", $QL))
+$srcRows.Add(@("Marknadsräntor", (A "https://www.riksbank.se/sv/statistik/rantor-och-valutakurser/" "Riksbanken"), "Varje bankdag", "Hämtas varje morgon"))
 $srcRows.Add(@("Blankning", (A "https://www.fi.se/sv/vara-register/blankningsregistret/" "Finansinspektionen, blankningsregistret"), "Varje dag", "Hämtas varje morgon"))
 $srcRows.Add(@("Insynshandel", (A "https://marknadssok.fi.se/publiceringsklient" "Finansinspektionen, insynsregistret"), "Varje dag, arkiv sedan 2019", "Hämtas varje morgon"))
 $srcRows.Add(@("Uppköpserbjudanden", (A "https://www.fi.se/sv/vara-register/prospektregistret/" "Finansinspektionen, prospektregistret"), "Varje dag", "Hämtas varje morgon"))
@@ -1190,7 +1297,8 @@ $apiRows = NewList
 foreach ($x in @(@("data/index.json", "Vilka kvartal som finns"), @("data/$Q.json", "Svenska aktier, fondernas innehav och nyckeltal för alla fonder"),
     @("data/$Q-world.json", "Utländska aktier och innehav"), @("data/history-se.json", "Ägande och nettoköp per svensk aktie sedan 2018"),
     @("data/profiles.json", "Aktiv andel, tio största och antal aktier per fond"), @("data/shorts.json", "Blankning per bolag och innehavare"),
-    @("data/insider.json", "Insynshandel i aktier, senaste 90 dagarna"), @("data/offers.json", "Uppköpserbjudanden och budpremier"), @("data/perf.json", "Avkastning per fond"))) {
+    @("data/insider.json", "Insynshandel i aktier, senaste 90 dagarna"), @("data/offers.json", "Uppköpserbjudanden och budpremier"), @("data/perf.json", "Avkastning per fond"),
+    @("data/$Q-rates.json", "Räntepapper: emittenter, kategorier, löptider och nyckeltal per fond"), @("data/rates-market.json", "Marknadsräntor från Riksbanken, en notering per vecka"))) {
   $apiRows.Add(@(('<code>/' + $x[0] + '</code>'), (Esc $x[1])))
 }
 $odContent = '<div class="page-head"><h1>Data och API</h1></div>' +

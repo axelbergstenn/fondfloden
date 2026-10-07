@@ -168,7 +168,8 @@ function Read-Quarter($release) {
         perf   = $perf
         ar     = Num $fi.Aktiv_risk
         sd     = Num $fi.'Standardavvikelse_24_månader'
-        eq     = $(if ($aum -and $aum -gt 0) { [math]::Min(1, $equity / $aum) } else { $null })
+        # [double] på båda: med heltalet 1 väljer PowerShell Min(int, int) och avrundar andelen till 0 eller 1
+        eq     = $(if ($aum -and $aum -gt 0) { [math]::Min([double]1, [double]$equity / $aum) } else { $null })
         index  = $name -match $IndexRe
         h      = $holdings
       }

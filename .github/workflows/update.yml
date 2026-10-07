@@ -39,7 +39,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      # Hela historiken, så att datasteget kan göra rebase om någon pushat under körningen
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # FI:s zip-filer sparas mellan körningar så att bara nya kvartal laddas ner
       - uses: actions/cache@v6
@@ -106,6 +109,7 @@ jobs:
           ALERTS_SEND: ${{ vars.ALERTS_SEND }}
         run: ./scripts/alerts.ps1
 
+      # Om någon pushat medan körningen pågick hämtas de ändringarna först (rebase), med några nya försök
       - name: Spara ny data i repot
         run: |
           if [ -n "$(git status --porcelain site/data)" ]; then
@@ -113,7 +117,12 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add site/data
             git commit -m "Uppdatera fondinnehav från FI"
-            git push
+            for i in 1 2 3 4; do
+              if git pull --rebase -q origin main && git push -q origin HEAD:main; then break; fi
+              if [ "$i" = 4 ]; then echo "Kunde inte spara datan"; exit 1; fi
+              git rebase --abort 2>/dev/null || true
+              sleep $((i * 10))
+            done
           else
             echo "Ingen ny data."
           fi

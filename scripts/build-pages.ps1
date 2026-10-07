@@ -1203,9 +1203,11 @@ if ($ratesLight -and $issLatest) {
       '<dl class="figures">' + (Fig "Fondernas innehav" (BigSek $i.v2)) + (Fig "Nettoköp $QL" (Colored $i.flow (BigSek $i.flow -Sign))) + (Fig "Fonder som äger" (Num0 $i.f2)) + (Fig "Värdepapper" (Num0 $i.n)) + "</dl>" +
       '<div class="grid-2 section-gap">' + (Block "Fonder som äger" (Table @("Fond", "Innehav (mkr)", "Nettoköp (mkr)") @($hRows)) "") + (Block "Värdepapper" (Table @("Värdepapper", "Innehav (mkr)", "Fonder") @($bRows)) "") + "</div>" +
       (Source ("/#/emittent/" + [uri]::EscapeDataString($i.key)) "Se alla fonder och värdepapper")
+    $stats = @(@("Fondernas innehav", (BigSek $i.v2), "#1f2328"), @("Nettoköp $QL", (BigSek $i.flow -Sign), (FlowColor $i.flow)), @("Fonder som äger", (Num0 $i.f2), "#1f2328"))
+    $img = Image "emittent-$($i.key)" (OgSvg $i.name "$catName · obligationer som svenska fonder äger" $stats "Största ägare" $null (($top | Select-Object -First 3) -join " · "))
     Page "emittent/$($i.key)/" "emittent/$($i.key)" "$($i.name) – obligationer som fonderna äger | Fondinsyn" `
       "$($i.name): svenska fonder äger obligationer för $(BigSek $i.v2) ($asOf). Se vilka fonder som äger, köper och säljer bolagets obligationer och certifikat." `
-      $defaultImg $content -Crumbs @("Räntor", "rantor/", $i.name, "emittent/$($i.key)/")
+      $img $content -Crumbs @("Räntor", "rantor/", $i.name, "emittent/$($i.key)/")
   }
 
   # Översikten /rantor/
@@ -1224,8 +1226,10 @@ if ($ratesLight -and $issLatest) {
     '<div class="grid-2 section-gap">' + (Block "Köpte mest" (Table @("Emittent", "Netto (mkr)", "Innehav (mkr)") @(& $flowRows $rBuys)) "") + (Block "Sålde mest" (Table @("Emittent", "Netto (mkr)", "Innehav (mkr)") @(& $flowRows $rSells)) "") + "</div>" +
     (Block "Största emittenterna" (Table @("Emittent", "Netto (mkr)", "Innehav (mkr)") @(& $flowRows $topIss)) "section-gap") +
     (Source "/#/rantor" "Se marknadsräntor och alla emittenter")
+  $stats = @(@("Fondernas räntepapper", (BigSek $rTot), "#1f2328"), @("Nettoköp $QL", (BigSek $rFlow -Sign), (FlowColor $rFlow)), @("Emittenter", (Num0 @($rIss | Where-Object { $_.v2 -gt 0 }).Count), "#1f2328"))
+  $img = Image "rantor" (OgSvg "Räntor" "Vad svenska fonder äger, köper och säljer för räntepapper" $stats "Mest köpta emittenter" $null ((@($rBuys | Select-Object -First 3 | ForEach-Object { $_.name })) -join " · "))
   Page "rantor/" "rantor" "Räntor och räntefonder – vad fonderna äger | Fondinsyn" "Vilka obligationer svenska räntefonder äger, köper och säljer: statsobligationer, bostadsobligationer och företagsobligationer per emittent, plus Riksbankens räntor." `
-    $defaultImg $content -Crumbs @("Räntor", "rantor/")
+    $img $content -Crumbs @("Räntor", "rantor/")
   Write-Host "  räntesidor: /rantor/ och $($issPages.Count) emittenter"
 }
 # ---------- Öppen data: CSV-filer och sidan /oppen-data/ ----------

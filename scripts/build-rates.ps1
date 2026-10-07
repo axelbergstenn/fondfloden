@@ -31,7 +31,7 @@ $ProgressPreference = "SilentlyContinue"
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$FormatVersion = 5
+$FormatVersion = 6
 $Inv = [System.Globalization.CultureInfo]::InvariantCulture
 $Utf8 = New-Object System.Text.UTF8Encoding $false
 
@@ -267,6 +267,8 @@ function PrettyIssuer($s) {
     switch -regex ($m.Groups[1].Value) { '(?i)city' { return "$place stad" } '(?i)municipality' { return "$place kommun" } default { return "Region $place" } }
   }
   $s = [regex]::Replace($s, '(?i),?\s+sweden$', '')
+  # Ett ensamt kortnamn i versaler ("PFSI") behålls som det är i stället för att bli ett påhittat ord ("Pfsi")
+  if ($s -cmatch '^[A-Z0-9&]{2,8}$') { return $s }
   if ($s -cne $s.ToUpperInvariant()) { return $s }
   $words = foreach ($w in ($s -split '\s+')) {
     if ($w.Length -le 3 -and $w -notmatch '^(BANK|CITY)$') { $w } else { $w.Substring(0, 1) + $w.Substring(1).ToLowerInvariant() }

@@ -81,6 +81,7 @@
   function mkr(v, withSign) {
     if (v == null || !isFinite(v)) return "–";
     var m = v / 1e6;
+    if (Math.abs(m) < 0.05) return nf1.format(0); // "0,0" i stället för "+0,0" eller "−0,0"
     var s = Math.abs(m) >= 100 ? nf0.format(m) : nf1.format(m);
     return withSign ? signed(s, m) : fixMinus(s);
   }
@@ -96,6 +97,8 @@
   function msek(m, withSign) { return m == null ? "–" : mkr(m * 1e6, withSign); }
   function pct(v, decimals) {
     if (v == null || !isFinite(v)) return "–";
+    // Andelar som avrundas till noll visas utan tecken ("0 %" i stället för "+0 %")
+    if (Math.abs(v * 100) < (decimals ? 0.05 : 0.5)) return (decimals ? nf1 : nf0).format(0) + " %";
     var s = (decimals ? nf1 : nf0).format(v * 100) + " %";
     return signed(s, v);
   }
@@ -637,6 +640,7 @@
   var stockFilter = { q: "", sector: "", min: "100" };
 
   function viewStocks() {
+    document.title = (state.market === "world" ? "Utländska aktier" : "Svenska aktier") + " som fonderna äger – Fondinsyn";
     var ds = marketDs();
     if (!ds) return failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar utländska aktier…");
     var sectors = {};
@@ -783,6 +787,7 @@
   }
 
   function viewFunds() {
+    document.title = "Fonder – innehav, avgifter och affärer – Fondinsyn";
     var ds = marketDs();
     if (!ds) return failed("world-" + state.q) ? errorBlock() : loadingBlock("Laddar utländska aktier…");
     var cos = {};
@@ -3008,6 +3013,10 @@
   function render() {
     if (!state.q || !quarterData() || !quarterData().se) return;
     var r = route();
+    if (state.restoreQ && r.page !== "rapport") {
+      selectQuarter(state.restoreQ, true, true);
+      return;
+    }
     document.body.setAttribute("data-page", r.page);
     document.title = "Fondinsyn – vad köper och säljer svenska fonder?";
     state.charts = [];
@@ -3089,7 +3098,11 @@
     });
   }
 
-  function selectQuarter(id, temporary) {
+  function selectQuarter(id, temporary, restoring) {
+    // Ett tillfälligt byte (en äldre kvartalsrapport) kommer ihåg vilket kvartal som var valt, så att resten av sajten
+    // går tillbaka dit när man lämnar rapporten. Ett vanligt byte glömmer det.
+    if (restoring || !temporary) state.restoreQ = null;
+    else if (!state.restoreQ && state.q !== id) state.restoreQ = state.q;
     state.q = id;
     if (!temporary) store("ff-quarter", id);
     $("quarter").value = id;
